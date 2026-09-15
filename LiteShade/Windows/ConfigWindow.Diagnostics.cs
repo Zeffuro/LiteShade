@@ -10,6 +10,8 @@ internal sealed partial class ConfigWindow
     {
         var context = _profiles.Context;
         ImGui.TextUnformatted($"Rendering: {_filter.Status}");
+        ImGui.TextUnformatted($"Depth of field: {PluginState.DepthOfField?.Status ?? "Unavailable"}");
+        ImGui.TextUnformatted($"Vignette: {PluginState.Vignette?.Status ?? "Unavailable"}");
         ImGui.Separator();
         ImGui.TextUnformatted($"Logged in: {context.IsLoggedIn} | Loading: {context.IsTransitioning}");
         ImGui.TextUnformatted($"Territory: {_names.Territory(context.TerritoryId)}");

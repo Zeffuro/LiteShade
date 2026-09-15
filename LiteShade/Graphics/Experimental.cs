@@ -18,6 +18,7 @@ internal static unsafe class Experimental
     public const string FilterVTableSignature = "48 89 6C 24 40 33 D2 B9 D0 00 00 00 E8 ?? ?? ?? ??";
     public const int FilterVTableOffset = 0x7E;
     public const string ManagerSignature = "48 8B 0D ?? ?? ?? ?? 8B 81 70 44 00 00 C1 E8 08 A8 01 0F 85";
+    public const string BuildFilterMatrixSignature = "E8 ?? ?? ?? ?? 8B 46 78 48 8D 55 ?? F3 0F 10 45 ??";
 
     public delegate void RenderViewDelegate(Manager* manager, [MarshalAs(UnmanagedType.I1)] bool enabled, Manager.RenderViews view);
     public delegate void RenderDelegate(Manager* manager);
@@ -60,6 +61,7 @@ internal static unsafe class Experimental
         [FieldOffset(0x5E8)] public uint FilterPartCount;
         [FieldOffset(0x600)] public ConstantBuffer* FilterCommonBuffer;
         [FieldOffset(0x60C)] public uint FilterEnabledMask;
+        [FieldOffset(0x610)] public PostEffectChain VignettingChain;
         [FieldOffset(0x4010)] public Texture* SceneInput;
         [FieldOffset(0x4030)] public Texture* Depth;
         [FieldOffset(0x4078)] public Texture* SceneOutput;
@@ -74,6 +76,7 @@ internal static unsafe class Experimental
         [FieldOffset(0x46E8)] public DepthOfFieldParameters DepthOfField;
         [FieldOffset(0x471C)] public Vector4 Curve;
         [FieldOffset(0x472C)] public FilterParameters Filter;
+        [FieldOffset(0x4808)] public VignettingParameters Vignetting;
 
         public bool HasDepthOfFieldScratchTargets()
             => HasTexture(Unk40A0) && HasTexture(Unk40A8) && HasTexture(Unk40B0)
@@ -125,12 +128,43 @@ internal static unsafe class Experimental
         [FieldOffset(0x30)] public float PreviousRangeScale;
     }
 
+    [StructLayout(LayoutKind.Explicit, Size = 0x18)]
+    public struct VignettingParameters
+    {
+        [FieldOffset(0x00)] public float AspectRatioBlend;
+        [FieldOffset(0x04)] public float RadiusSquared;
+        [FieldOffset(0x08)] public float Falloff;
+        [FieldOffset(0x0C)] public Vector3 Color;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 0x5C)]
+    public struct EnvColorFilterParameters
+    {
+        [FieldOffset(0x00)] public Vector4 Curve;
+        [FieldOffset(0x10)] public float Hue;
+        [FieldOffset(0x14)] public float Saturation;
+        [FieldOffset(0x18)] public float Brightness;
+        [FieldOffset(0x1C)] public float Contrast;
+        [FieldOffset(0x20)] public Vector3 TintColor;
+        [FieldOffset(0x2C)] public float TintStrength;
+        [FieldOffset(0x30)] public float Sepia;
+        [FieldOffset(0x34)] public float Monochrome;
+        [FieldOffset(0x38)] public float Invert;
+        [FieldOffset(0x3C)] public float DarkSaturation;
+        [FieldOffset(0x40)] public Vector3 DarkTintColor;
+        [FieldOffset(0x4C)] public float DarkThreshold;
+        [FieldOffset(0x50)] public float DarkRange;
+        [FieldOffset(0x54)] public float DarkTintStrength;
+        [FieldOffset(0x58)] public float Strength;
+    }
+
     [StructLayout(LayoutKind.Explicit, Size = 0x38)]
     public struct PostEffectChain
     {
         [FieldOffset(0x08)] public PostEffectPart** Parts;
         [FieldOffset(0x10)] public uint PartCount;
         [FieldOffset(0x28)] public ConstantBuffer* CommonBuffer;
+        [FieldOffset(0x34)] public uint EnabledPartMask;
     }
 
     [StructLayout(LayoutKind.Explicit, Size = 0xA0)]
@@ -141,6 +175,8 @@ internal static unsafe class Experimental
         [FieldOffset(0x10)] public void* ParameterData;
         [FieldOffset(0x18)] public void* ConstantBufferBindings;
         [FieldOffset(0x20)] public void* SamplerBindings;
+        [FieldOffset(0x28)] public Texture* InputTexture;
+        [FieldOffset(0x38)] public Texture* OutputTexture;
         [FieldOffset(0x8C)] public byte ParameterCount;
         [FieldOffset(0x8D)] public byte SamplerCount;
         [FieldOffset(0x94)] public sbyte VertexShaderIndex;
@@ -258,6 +294,25 @@ internal static unsafe class Experimental
         return coc->Part.VTable == vtable && coc->WeightParameterIndex < coc->Part.ParameterCount
             && coc->CocParameterIndex != uint.MaxValue && coc->LutSamplerIndex != uint.MaxValue
             && HasBuffer(coc->CocParameterBuffer) && HasBuffer(coc->DisabledCocParameterBuffer) ? coc : null;
+    }
+
+    public static bool IsVignetteReady(PostEffectManager* manager, PostEffectResources* resources)
+    {
+        var targets = RenderTargetManager.Instance();
+        if (manager == null || manager == (PostEffectManager*)(-1) || manager->InitializedEffects != ulong.MaxValue
+            || targets == null || targets->Resolution_Width == 0 || targets->Resolution_Height == 0
+            || resources == null || resources->VertexDeclaration == null || resources->VertexBuffer == null
+            || !HasBuffer(resources->ParamBuffer, 0x30) || !HasBuffer(resources->SamplingOffsetBuffer, 0x100)
+            || !HasBuffer(resources->DynamicViewportResolutionBuffer, 0x20)
+            || !HasParts(manager->VignettingChain, 2, resources, true)
+            || !HasBuffer(manager->VignettingChain.CommonBuffer) || (manager->VignettingChain.EnabledPartMask & 3) != 3)
+        {
+            return false;
+        }
+
+        var parts = manager->VignettingChain.Parts;
+        return parts[0]->ParameterCount >= 1 && parts[1]->ParameterCount >= 1 && parts[1]->SamplerCount >= 1
+            && HasTexture(parts[0]->OutputTexture) && parts[1]->InputTexture == parts[0]->OutputTexture;
     }
 
     private static bool HasTexture(Texture* texture)

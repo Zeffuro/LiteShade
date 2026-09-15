@@ -10,18 +10,20 @@ using FFXIVClientStructs.FFXIV.Common.Math;
 using LiteShade.Configuration;
 using LiteShade.Helpers;
 using LiteShade.Profiles;
+using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 
 namespace LiteShade.Graphics;
 
 internal sealed unsafe class DepthOfField : IDisposable
 {
-    public readonly record struct Settings(bool AutoFocus, float FocusDistance, float FNumber);
+    public readonly record struct Settings(FocusMode Focus, float FocusDistance, float FNumber, PauseOptions Pauses);
 
     private readonly ProfileService _profiles;
 
     private readonly IFramework _framework = IFramework.Get();
     private readonly IClientState _client = IClientState.Get();
     private readonly ICondition _conditions = ICondition.Get();
+    private readonly ITargetManager _targets = ITargetManager.Get();
 
     // TODO: Swap to FFXIVClientStructs when in main Dalamud.
     private readonly Hook<Experimental.RenderDelegate>? _hook;
@@ -30,8 +32,12 @@ internal sealed unsafe class DepthOfField : IDisposable
 
     private readonly nint* _cocVTable;
     private volatile string _status = "Disabled";
+    private volatile string _focusDescription = string.Empty;
+    private ulong? _focusTargetId;
+    private string _targetDescription = string.Empty;
 
     public string Status => _status;
+    public string FocusDescription => _focusDescription;
 
     public DepthOfField(ProfileService profiles)
     {
@@ -65,33 +71,40 @@ internal sealed unsafe class DepthOfField : IDisposable
             return;
         }
 
-        var (_, settings, pauses) = _profiles.RenderSettings;
+        var (_, settings, _) = _profiles.RenderSettings;
         if (settings is not { } dof)
         {
             _status = "Disabled";
+            _focusDescription = string.Empty;
+            _focusTargetId = null;
             _hook!.Original(renderManager);
             return;
         }
 
-        if (!CanApply(renderManager, pauses))
+        if (!CanApply(renderManager, dof.Pauses))
         {
+            _focusDescription = string.Empty;
+            _focusTargetId = null;
             _hook!.Original(renderManager);
             return;
         }
 
         var manager = *_manager;
         var coc = Experimental.GetReadyDepthOfField(manager, *_resources, _cocVTable);
-        if (coc == null || !TryGetFocus(dof, out var distance)
+        if (coc == null || !TryGetFocus(dof, out var distance, out var focusDescription)
             || !float.IsFinite(manager->DepthOfField.CocNormalizationDivisor) || manager->DepthOfField.CocNormalizationDivisor <= 0
             || !float.IsFinite(1f / manager->DepthOfField.CocNormalizationDivisor))
         {
             _status = "Waiting for depth of field resources";
+            _focusDescription = string.Empty;
+            _focusTargetId = null;
             _hook!.Original(renderManager);
             return;
         }
 
         var original = manager->DepthOfField;
         var nativeEnabled = (manager->Flags & Experimental.PostEffectFlags.DepthOfField) != 0;
+        _focusDescription = focusDescription;
 
         manager->DepthOfField.UseUpdatedDepthOfField = true;
         manager->DepthOfField.UseManualDepthOfField = false;
@@ -159,9 +172,11 @@ internal sealed unsafe class DepthOfField : IDisposable
         return true;
     }
 
-    private static bool TryGetFocus(Settings settings, out float distance)
+    private bool TryGetFocus(Settings settings, out float distance, out string description)
     {
         distance = settings.FocusDistance;
+        description = "Manual distance";
+        ulong? focusTargetId = null;
         var cameras = CameraManager.Instance();
         if (cameras == null || (uint)cameras->CameraIndex >= cameras->Cameras.Length)
         {
@@ -181,14 +196,46 @@ internal sealed unsafe class DepthOfField : IDisposable
             return false;
         }
 
-        if (settings.AutoFocus)
+        if (settings.Focus != FocusMode.Manual)
         {
-            distance = (((Experimental.CameraState*)camera)->Flags & 1) != 0
-                ? Vector3.Distance(camera->Position, camera->LookAtVector)
-                : 5f;
+            var hasLookAt = (((Experimental.CameraState*)camera)->Flags & 1) != 0;
+            distance = hasLookAt ? Vector3.Distance(camera->Position, camera->LookAtVector) : 5f;
+            if (!float.IsFinite(distance) || distance <= 0)
+            {
+                hasLookAt = false;
+                distance = 5f;
+            }
+
             distance = MathF.Max(distance, 0.5f);
+            description = hasLookAt ? "Camera look-at" : "Camera fallback (5 yalms)";
+
+            if (settings.Focus == FocusMode.Target)
+            {
+                description = hasLookAt ? "Camera look-at (target unavailable)" : "Camera fallback (5 yalms, target unavailable)";
+                var target = GameMain.IsInGPose() ? _targets.GPoseTarget : _targets.Target;
+                if (target != null && target.IsValid())
+                {
+                    Vector3 center = default;
+                    ((GameObject*)target.Address)->GetCenterPosition(&center);
+
+                    var depth = -Vector4.Transform(new Vector4(center, 1f), camera->ViewMatrix).Z;
+                    if (float.IsFinite(depth) && depth > 0)
+                    {
+                        distance = MathF.Max(depth, 0.5f);
+                        focusTargetId = target.GameObjectId;
+                        if (_focusTargetId != focusTargetId)
+                        {
+                            var name = target.Name.TextValue;
+                            _targetDescription = string.IsNullOrWhiteSpace(name) ? "Target" : $"Target: {name}";
+                        }
+
+                        description = _targetDescription;
+                    }
+                }
+            }
         }
 
+        _focusTargetId = focusTargetId;
         var device = Device.Instance();
 
         // Calculation taken from DepthOfFieldCocLut_Update

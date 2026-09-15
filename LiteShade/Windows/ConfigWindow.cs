@@ -24,8 +24,6 @@ internal sealed partial class ConfigWindow : Window
     private bool _reShadeLoaded;
     private Guid _editingProfileId;
     private Guid? _editingRuleId;
-    private bool _advanced;
-    private bool _confirmDelete;
 
     public ConfigWindow(SystemConfiguration config, ProfileService profiles, ColorFilter filter) : base("LiteShade")
     {
@@ -50,8 +48,6 @@ internal sealed partial class ConfigWindow : Window
             Save();
         }
 
-        ImGui.SameLine();
-        ImGui.TextDisabled(_filter.Status);
         if (ConfigRepository.SaveError is { } error)
         {
             ImGui.TextColored(new Vector4(1f, 0.55f, 0.35f, 1f), error);
@@ -77,10 +73,24 @@ internal sealed partial class ConfigWindow : Window
         ImGui.Separator();
         var selection = _profiles.Selection;
         var selected = _config.Profiles.FirstOrDefault(profile => profile.Id == selection.ProfileId);
-        ImGui.TextUnformatted($"Active: {selected?.Name ?? "None"}");
+        ImGui.TextUnformatted($"Active profile: {selected?.Name ?? "None"}");
         var rule = _config.Rules.FirstOrDefault(item => item.Id == selection.RuleId);
         ImGui.SameLine();
-        ImGui.TextDisabled(rule is null ? "default" : rule.Name);
+        ImGui.TextDisabled(_profiles.OverrideProfileId.HasValue ? "override" : rule is null ? "default" : rule.Name);
+        if (_profiles.OverrideProfileId.HasValue)
+        {
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Clear override"))
+            {
+                _profiles.SetOverride(null);
+            }
+        }
+
+        if (_editingProfileId != selection.ProfileId)
+        {
+            var editing = _config.Profiles.FirstOrDefault(profile => profile.Id == _editingProfileId);
+            ImGui.TextDisabled($"Editing profile: {editing?.Name ?? "None"}");
+        }
         using var tabs = ImRaii.TabBar("LiteShadeTabs");
         if (!tabs)
         {

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -71,6 +72,21 @@ internal sealed partial class ConfigWindow
         }
 
         ImGui.SameLine();
+        if (ImGui.Button("Duplicate rule"))
+        {
+            var copy = editing.Copy();
+            copy.Id = Guid.NewGuid();
+            copy.Name += " copy";
+            copy.Enabled = false;
+            _config.Rules.Insert(_config.Rules.IndexOf(editing) + 1, copy);
+            _editingRuleId = copy.Id;
+            _showArea = false;
+            _scrollToRule = true;
+            Save();
+            return;
+        }
+
+        ImGui.SameLine();
         if (ImGui.Button("Delete rule"))
         {
             _config.Rules.Remove(editing);
@@ -127,7 +143,7 @@ internal sealed partial class ConfigWindow
 
             if (ImGui.IsItemHovered())
             {
-                ImGui.SetTooltip($"{(rule.TerritoryId is { } zone ? _names.Territory(zone) : "Any zone")} / {(rule.WeatherId is { } weather ? _names.Weather(weather) : "Any weather")}");
+                ImGui.SetTooltip(RuleSummary(rule));
             }
 
             if (_scrollToRule && rule.Id == _editingRuleId)
@@ -212,5 +228,75 @@ internal sealed partial class ConfigWindow
         ImGui.TextUnformatted("When all of these match:");
         DrawLocationConditions(rule);
         DrawExtraConditions(rule);
+        ImGui.Spacing();
+        ImGui.TextDisabled(RuleStatus(rule));
+    }
+
+    private string RuleSummary(ProfileRule rule)
+    {
+        var parts = new List<string>();
+        if (rule.TerritoryId is { } zone) parts.Add(_names.Territory(zone));
+        if (rule.AreaId is { } area) parts.Add(_names.Area(area));
+        if (rule.WeatherId is { } weather) parts.Add(_names.Weather(weather));
+        if (rule.StartTime is { } start && rule.EndTime is { } end)
+        {
+            parts.Add(start == end ? "All day (ET)" : $"{FormatEtTime(start)}–{FormatEtTime(end)} ET");
+        }
+
+        if (rule.Activity != RuleActivity.Any) parts.Add(rule.Activity == RuleActivity.Duty ? "In duty" : "Outside duty");
+        Add("Combat", rule.InCombat);
+        Add("GPose", rule.InGPose);
+        Add("Cutscene", rule.InCutscene);
+        Add("Idle camera", rule.InIdleCamera);
+        Add("Crafting", rule.IsCrafting);
+        Add("Gathering", rule.IsGathering);
+        Add("Mounted", rule.IsMounted);
+        Add("Performing", rule.IsPerforming);
+        return parts.Count == 0 ? "Always" : string.Join(" · ", parts);
+
+        void Add(string label, bool? value)
+        {
+            if (value is { } state) parts.Add($"{label}: {(state ? "yes" : "no")}");
+        }
+    }
+
+    private string RuleStatus(ProfileRule rule)
+    {
+        if (!rule.Enabled) return "Rule disabled";
+        if (!rule.IsValid) return "Incomplete condition";
+        if (_config.Profiles.All(profile => profile.Id != rule.ProfileId)) return "Profile is missing";
+        var context = _profiles.Context;
+        if (!context.IsLoggedIn || context.IsTransitioning) return "Waiting for the scene";
+
+        var mismatch = RuleResolver.GetMismatch(rule, context);
+        if (mismatch is { } condition)
+        {
+            var reason = condition switch
+            {
+                RuleCondition.Time => context.DayTimeSeconds is { } seconds ? $"time is {FormatEtTime((int)(seconds / 60))} ET" : "time is unavailable",
+                RuleCondition.Zone => $"zone is {_names.Territory(context.TerritoryId)}",
+                RuleCondition.Area => context.AreaId is { } area ? $"area is {_names.Area(area)}" : "area is unavailable",
+                RuleCondition.Weather => context.WeatherId is { } weather ? $"weather is {_names.Weather(weather)}" : "weather is unavailable",
+                RuleCondition.Duty => context.InDuty ? "in duty" : "outside duty",
+                RuleCondition.Combat => context.InCombat ? "in combat" : "outside combat",
+                RuleCondition.GPose => context.InGPose ? "in GPose" : "outside GPose",
+                RuleCondition.Cutscene => context.InCutscene ? "in a cutscene" : "outside cutscenes",
+                RuleCondition.IdleCamera => context.InIdleCamera ? "idle camera active" : "idle camera inactive",
+                RuleCondition.Crafting => context.IsCrafting ? "crafting" : "not crafting",
+                RuleCondition.Gathering => context.IsGathering ? "gathering" : "not gathering",
+                RuleCondition.Mounted => context.IsMounted ? "mounted" : "not mounted",
+                RuleCondition.Performing => context.IsPerforming ? "performing" : "not performing",
+                _ => "condition differs",
+            };
+            return $"Not matching: {reason}";
+        }
+
+        if (!_config.Enabled) return "Matches. LiteShade is disabled";
+        if (_profiles.OverrideProfileId.HasValue) return "Matches. A profile override is active";
+        if (!_config.AutomaticProfiles) return "Matches. Automatic selection is off";
+        var selection = _profiles.Selection;
+        if (selection.RuleId == rule.Id) return "In use";
+        var earlier = _config.Rules.FirstOrDefault(item => item.Id == selection.RuleId);
+        return earlier is null ? "Matches" : $"Matches. {earlier.Name} takes priority";
     }
 }

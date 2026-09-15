@@ -16,6 +16,7 @@ internal static class PluginState
     public static ProfileService? ProfileService { get; set; }
     public static ColorFilter? ColorFilter { get; set; }
     public static DepthOfField? DepthOfField { get; set; }
+    public static Vignette? Vignette { get; set; }
     public static CommandHandler? CommandHandler { get; set; }
 
     public static void Reset()
@@ -27,6 +28,7 @@ internal static class PluginState
         ProfileService = null;
         ColorFilter = null;
         DepthOfField = null;
+        Vignette = null;
         CommandHandler = null;
     }
 }

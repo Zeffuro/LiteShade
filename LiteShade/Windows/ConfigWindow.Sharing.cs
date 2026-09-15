@@ -26,36 +26,40 @@ internal sealed partial class ConfigWindow
     private bool DrawTransfer(ColorProfile profile)
     {
         ImGui.SameLine();
-        if (ImGui.Button("Export..."))
+        if (ImGui.Button("Actions..."))
         {
-            ImGui.OpenPopup("Export profiles");
+            ImGui.OpenPopup("Profile actions");
         }
 
-        using (var popup = ImRaii.Popup("Export profiles"))
+        var import = false;
+        var reset = false;
+        using (var popup = ImRaii.Popup("Profile actions"))
         {
             if (popup)
             {
-                ImGui.TextDisabled(profile.Name);
-                if (ImGui.MenuItem("This profile"))
+                if (ImGui.MenuItem("Export profile"))
                 {
                     Export(profile.Id, false);
                 }
 
-                if (ImGui.MenuItem("This profile + conditions"))
+                if (ImGui.MenuItem("Export profile + conditions"))
                 {
                     Export(profile.Id, true);
                 }
 
-                ImGui.Separator();
                 if (ImGui.MenuItem("All profiles + conditions"))
                 {
                     Export(null, true);
                 }
+
+                ImGui.Separator();
+                import = ImGui.MenuItem("Import profiles...");
+                ImGui.Separator();
+                reset = ImGui.MenuItem("Reset all settings...");
             }
         }
 
-        ImGui.SameLine();
-        if (ImGui.Button("Import..."))
+        if (import)
         {
             try
             {
@@ -72,8 +76,7 @@ internal sealed partial class ConfigWindow
             }
         }
 
-        ImGui.SameLine();
-        if (ImGui.Button("Reset all..."))
+        if (reset)
         {
             _reset = true;
             ImGui.OpenPopup("Reset LiteShade");
@@ -147,12 +150,12 @@ internal sealed partial class ConfigWindow
         if (ImGui.Button(_replaceProfiles ? "Replace and import" : "Import"))
         {
             _editingProfileId = ProfileTransfer.Import(_config, _import, _importRules, _enableImportedRules, _replaceProfiles);
-            _confirmDelete = false;
             if (_replaceProfiles)
             {
                 _editingRuleId = null;
                 PluginState.WelcomeWindow.IsOpen = false;
                 _profiles.SetPreview(null);
+                _profiles.SetOverride(null);
             }
 
             Save();
@@ -204,10 +207,9 @@ internal sealed partial class ConfigWindow
             _config.Reset();
             _editingProfileId = _config.DefaultProfileId;
             _editingRuleId = null;
-            _confirmDelete = false;
-            _advanced = false;
             _transferMessage = null;
             _import = null;
+            _profiles.SetOverride(null);
             Save();
             PluginState.WelcomeWindow.Show();
             _reset = false;

@@ -15,7 +15,10 @@ public sealed class SystemConfiguration : IPluginConfiguration
     public bool Enabled { get; set; }
     public bool HasSeenWelcome { get; set; }
     public bool AutomaticProfiles { get; set; }
-    public PauseOptions Pauses { get; set; }
+    public PauseOptions ColorPauses { get; set; }
+    public PauseOptions DepthOfFieldPauses { get; set; }
+    public PauseOptions VignettePauses { get; set; }
+    public float TransitionSeconds { get; set; } = 0.35f;
     public Guid DefaultProfileId { get; set; }
     public List<ColorProfile> Profiles { get; set; } = [];
     public List<ProfileRule> Rules { get; set; } = [];
@@ -61,6 +64,7 @@ public sealed class SystemConfiguration : IPluginConfiguration
             rule.Normalize();
         }
 
+        TransitionSeconds = float.IsFinite(TransitionSeconds) ? Math.Clamp(TransitionSeconds, 0f, 3f) : 0.35f;
         Version = Math.Max(Version, CurrentVersion);
     }
 
@@ -72,7 +76,10 @@ public sealed class SystemConfiguration : IPluginConfiguration
         Enabled = false;
         HasSeenWelcome = false;
         AutomaticProfiles = false;
-        Pauses = PauseOptions.None;
+        ColorPauses = PauseOptions.None;
+        DepthOfFieldPauses = PauseOptions.None;
+        VignettePauses = PauseOptions.None;
+        TransitionSeconds = 0.35f;
         Profiles = [ColorProfile.CreateNeutral()];
         Rules = [];
         DefaultProfileId = Profiles[0].Id;

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Hooking;
@@ -13,6 +15,8 @@ namespace LiteShade.Graphics;
 
 internal sealed unsafe class ColorFilter : IDisposable
 {
+    public readonly record struct Settings(ColorMatrix Matrix, uint GameFilterId, PauseOptions Pauses);
+
     private readonly ProfileService _profiles;
 
     private readonly IFramework _framework = IFramework.Get();
@@ -33,11 +37,25 @@ internal sealed unsafe class ColorFilter : IDisposable
     private volatile string _status = FilterStatus.WaitingForScene;
 
     public string Status => _status;
+    public IReadOnlyList<GameFilter> GameFilters { get; } = [];
+    public string? GameFiltersError { get; }
+    private readonly Dictionary<uint, GameFilter> _gameFilters = [];
 
     // TODO: Swap to FFXIVClientStructs when in main Dalamud.
     public ColorFilter(ProfileService profiles)
     {
         _profiles = profiles;
+        try
+        {
+            GameFilters = GameFilter.Load();
+            _gameFilters = GameFilters.ToDictionary(filter => filter.Id);
+        }
+        catch (Exception exception)
+        {
+            GameFiltersError = "Game filters unavailable";
+            IPluginLog.Get().Error(exception, "Could not load game filters.");
+        }
+
         try
         {
             var scanner = ISigScanner.Get();
@@ -81,11 +99,20 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        var (matrix, _, pauses) = _profiles.RenderSettings;
-        if (!enabled || matrix is null || matrix.Value.IsIdentity)
+        var (settings, _, _) = _profiles.RenderSettings;
+        if (!enabled || settings is null || (settings.Value.Matrix.IsIdentity && settings.Value.GameFilterId == 0))
         {
             _status = !enabled ? FilterStatus.PostEffectsDisabled
-                : matrix is null ? FilterStatus.Disabled : FilterStatus.Neutral;
+                : settings is null ? FilterStatus.Disabled : FilterStatus.Neutral;
+            _renderHook!.Original(renderManager, enabled, view);
+            return;
+        }
+
+        var (matrix, gameFilterId, pauses) = settings.Value;
+        _gameFilters.TryGetValue(gameFilterId, out var gameFilter);
+        if (gameFilterId != 0 && gameFilter is null)
+        {
+            _status = "Game filter unavailable";
             _renderHook!.Original(renderManager, enabled, view);
             return;
         }
@@ -144,7 +171,7 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        if (manager->Curve != new Vector4(0, 1, 0, 0))
+        if (gameFilter is null && manager->Curve != new Vector4(0, 1, 0, 0))
         {
             _status = FilterStatus.ColourCurve;
             _renderHook!.Original(renderManager, enabled, view);
@@ -152,8 +179,8 @@ internal sealed unsafe class ColorFilter : IDisposable
         }
 
         var nativeFilterEnabled = (manager->Flags & Experimental.PostEffectFlags.ColorFilterDarkBlend) != 0;
-        var combined = matrix.Value;
-        if (nativeFilterEnabled)
+        var combined = gameFilter is null ? matrix : matrix.Multiply(gameFilter.Matrix);
+        if (gameFilter is null && nativeFilterEnabled)
         {
             var filter = manager->Filter;
             if (filter.DarkParameters.X != 0 || !float.IsFinite(filter.DarkParameters.Y) || filter.DarkParameters.Y < 0
@@ -185,6 +212,12 @@ internal sealed unsafe class ColorFilter : IDisposable
         _activePart = part;
         _matrix = combined;
         _applied = false;
+        var originalCurve = manager->Curve;
+        if (gameFilter is not null)
+        {
+            manager->Curve = gameFilter.Curve;
+        }
+
         manager->Flags |= Experimental.PostEffectFlags.ColorFilterDarkBlend;
         try
         {
@@ -193,9 +226,13 @@ internal sealed unsafe class ColorFilter : IDisposable
         }
         finally
         {
-            if (*_manager == manager && !nativeFilterEnabled)
+            if (*_manager == manager)
             {
-                manager->Flags &= ~Experimental.PostEffectFlags.ColorFilterDarkBlend;
+                manager->Curve = originalCurve;
+                if (!nativeFilterEnabled)
+                {
+                    manager->Flags &= ~Experimental.PostEffectFlags.ColorFilterDarkBlend;
+                }
             }
 
             _activeManager = null;
@@ -234,4 +271,3 @@ internal sealed unsafe class ColorFilter : IDisposable
         }
     }
 }
-

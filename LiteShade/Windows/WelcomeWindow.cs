@@ -70,7 +70,7 @@ internal sealed class WelcomeWindow : Window
 
             var strength = _preview.Strength;
             var previous = strength;
-            if (ImGui.DragFloat("Strength", ref strength, 0.01f, 0f, 1f, "%.2f"))
+            if (ImGui.SliderFloat("Colour strength", ref strength, 0f, 1f, "%.2f"))
             {
                 _preview.Strength = float.IsFinite(strength) ? Math.Clamp(strength, 0f, 1f) : previous;
                 UpdatePreview();
@@ -85,14 +85,14 @@ internal sealed class WelcomeWindow : Window
         ImGui.Spacing();
         using (ImRaii.Disabled(_preview is null))
         {
-            if (ImGui.Button("Keep"))
+            if (ImGui.Button("Use preset"))
             {
                 Keep();
             }
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Skip"))
+        if (ImGui.Button("Cancel"))
         {
             Skip();
         }
@@ -124,6 +124,7 @@ internal sealed class WelcomeWindow : Window
         _config.AutomaticProfiles = false;
         _config.HasSeenWelcome = true;
         Save();
+        _profiles.SetOverride(null);
         _profiles.SetPreview(null);
         IsOpen = false;
     }

@@ -2,6 +2,13 @@ using System;
 
 namespace LiteShade.Configuration;
 
+public enum FocusMode
+{
+    Target,
+    Camera,
+    Manual,
+}
+
 public sealed class ColorProfile
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -12,8 +19,14 @@ public sealed class ColorProfile
     public float Saturation { get; set; } = 1f;
     public float Contrast { get; set; } = 1f;
     public float Exposure { get; set; }
+    public uint GameFilterId { get; set; }
+    public bool Vignette { get; set; }
+    public float VignetteAmount { get; set; } = 0.35f;
+    public float VignetteRadius { get; set; } = 0.6f;
+    public float VignetteShape { get; set; } = 0.5f;
+    public uint VignetteColor { get; set; } = 0xFF000000;
     public bool DepthOfField { get; set; }
-    public bool AutoFocus { get; set; } = true;
+    public FocusMode Focus { get; set; }
     public float FocusDistance { get; set; } = 5f;
     public float FNumber { get; set; } = 4f;
 
@@ -44,7 +57,15 @@ public sealed class ColorProfile
         Contrast = Clamp(Contrast, 0.5f, 1.5f, 1f);
         Exposure = Clamp(Exposure, -2f, 2f, 0f);
         FocusDistance = Clamp(FocusDistance, 0.5f, 200f, 5f);
-        FNumber = Clamp(FNumber, 0.7f, 32f, 4f);
+        FNumber = Clamp(FNumber, 0.5f, 32f, 4f);
+        VignetteAmount = Clamp(VignetteAmount, 0f, 1f, 0.35f);
+        VignetteRadius = Clamp(VignetteRadius, 0f, 0.95f, 0.6f);
+        VignetteShape = Clamp(VignetteShape, 0f, 1f, 0.5f);
+        VignetteColor |= 0xFF000000;
+        if (!Enum.IsDefined(Focus))
+        {
+            Focus = FocusMode.Target;
+        }
     }
 
     private static float Clamp(float value, float min, float max, float fallback)

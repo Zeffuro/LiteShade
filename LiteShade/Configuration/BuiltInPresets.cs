@@ -6,6 +6,7 @@ internal static class BuiltInPresets
 {
     public static IReadOnlyList<BuiltInPreset> All { get; } =
     [
+        new("Neutral", "Original colours."),
         new("Clear", "Less green, a little more colour.", Tint: 0.06f, Saturation: 1.25f),
         new("Warm", "Warmer light and softer contrast.", Warmth: 0.40f, Saturation: 1.16f, Contrast: 0.98f),
         new("Cool", "Cooler tones with a crisp finish.", Warmth: -0.40f, Saturation: 1.16f, Contrast: 1.02f),

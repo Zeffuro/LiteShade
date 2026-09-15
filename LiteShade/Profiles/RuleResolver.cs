@@ -3,6 +3,23 @@ using System.Collections.Generic;
 
 namespace LiteShade.Profiles;
 
+public enum RuleCondition
+{
+    Time,
+    Zone,
+    Area,
+    Weather,
+    Duty,
+    Combat,
+    GPose,
+    Cutscene,
+    IdleCamera,
+    Crafting,
+    Gathering,
+    Mounted,
+    Performing,
+}
+
 public static class RuleResolver
 {
     public static ProfileSelection Resolve(
@@ -25,7 +42,7 @@ public static class RuleResolver
                 continue;
             }
 
-            if (!Matches(rule, context))
+            if (GetMismatch(rule, context) is not null)
             {
                 continue;
             }
@@ -36,55 +53,56 @@ public static class RuleResolver
         return new ProfileSelection(fallbackProfileId, null);
     }
 
-    private static bool Matches(ProfileRule rule, ProfileContext context)
+    public static RuleCondition? GetMismatch(ProfileRule rule, ProfileContext context)
     {
         if (rule.StartTime is { } start && rule.EndTime is { } end && start != end)
         {
             if (context.DayTimeSeconds is not { } seconds)
             {
-                return false;
+                return RuleCondition.Time;
             }
 
             var minute = (int)(seconds / 60);
             var inRange = start < end ? minute >= start && minute < end : minute >= start || minute < end;
             if (!inRange)
             {
-                return false;
+                return RuleCondition.Time;
             }
         }
 
         if (rule.TerritoryId is { } territoryId && territoryId != context.TerritoryId)
         {
-            return false;
+            return RuleCondition.Zone;
         }
 
         if (rule.AreaId is { } areaId && context.AreaId != areaId)
         {
-            return false;
+            return RuleCondition.Area;
         }
 
         if (rule.WeatherId is { } weatherId && context.WeatherId != weatherId)
         {
-            return false;
+            return RuleCondition.Weather;
         }
 
         if (rule.Activity == RuleActivity.Overworld && context.InDuty)
         {
-            return false;
+            return RuleCondition.Duty;
         }
 
         if (rule.Activity == RuleActivity.Duty && !context.InDuty)
         {
-            return false;
+            return RuleCondition.Duty;
         }
 
-        return (rule.InCombat is null || rule.InCombat == context.InCombat)
-               && (rule.InGPose is null || rule.InGPose == context.InGPose)
-               && (rule.InCutscene is null || rule.InCutscene == context.InCutscene)
-               && (rule.InIdleCamera is null || rule.InIdleCamera == context.InIdleCamera)
-               && (rule.IsCrafting is null || rule.IsCrafting == context.IsCrafting)
-               && (rule.IsGathering is null || rule.IsGathering == context.IsGathering)
-               && (rule.IsMounted is null || rule.IsMounted == context.IsMounted)
-               && (rule.IsPerforming is null || rule.IsPerforming == context.IsPerforming);
+        if (rule.InCombat is { } combat && combat != context.InCombat) return RuleCondition.Combat;
+        if (rule.InGPose is { } gpose && gpose != context.InGPose) return RuleCondition.GPose;
+        if (rule.InCutscene is { } cutscene && cutscene != context.InCutscene) return RuleCondition.Cutscene;
+        if (rule.InIdleCamera is { } idle && idle != context.InIdleCamera) return RuleCondition.IdleCamera;
+        if (rule.IsCrafting is { } crafting && crafting != context.IsCrafting) return RuleCondition.Crafting;
+        if (rule.IsGathering is { } gathering && gathering != context.IsGathering) return RuleCondition.Gathering;
+        if (rule.IsMounted is { } mounted && mounted != context.IsMounted) return RuleCondition.Mounted;
+        if (rule.IsPerforming is { } performing && performing != context.IsPerforming) return RuleCondition.Performing;
+        return null;
     }
 }

@@ -39,6 +39,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
             cancellationToken.ThrowIfCancellationRequested();
             PluginState.ColorFilter = new ColorFilter(PluginState.ProfileService);
             PluginState.DepthOfField = new DepthOfField(PluginState.ProfileService);
+            PluginState.Vignette = new Vignette(PluginState.ProfileService);
         });
 
         PluginState.WindowSystem = new WindowSystem("LiteShade");
@@ -82,6 +83,7 @@ public sealed class Plugin : IAsyncDalamudPlugin
         {
             try
             {
+                PluginState.Vignette?.Dispose();
                 PluginState.DepthOfField?.Dispose();
                 PluginState.ColorFilter?.Dispose();
             }

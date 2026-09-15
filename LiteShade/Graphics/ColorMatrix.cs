@@ -54,6 +54,11 @@ internal readonly struct ColorMatrix(Vector4 red, Vector4 green, Vector4 blue)
         MultiplyRow(Green, right),
         MultiplyRow(Blue, right));
 
+    public static ColorMatrix Lerp(ColorMatrix from, ColorMatrix to, float amount) => new(
+        Vector4.Lerp(from.Red, to.Red, amount),
+        Vector4.Lerp(from.Green, to.Green, amount),
+        Vector4.Lerp(from.Blue, to.Blue, amount));
+
     private static Vector4 MultiplyRow(Vector4 row, ColorMatrix right)
         => row.X * right.Red + row.Y * right.Green + row.Z * right.Blue + new Vector4(0, 0, 0, row.W);
 
