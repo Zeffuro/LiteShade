@@ -1,0 +1,19 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+    <PropertyGroup>
+        <Version>1.0.0.0</Version>
+        <DebugType>portable</DebugType>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+    <PropertyGroup>
+        <Author>Zeffuro</Author>
+        <Name>LiteShade</Name>
+        <InternalName>LiteShade</InternalName>
+        <Punchline>Lightweight colours for Eorzea.</Punchline>
+        <Description>Native colour adjustments for the world and characters.</Description>
+        <Tags>qol;colour;color;graphics;shaders;presets;weather;gpose</Tags>
+        <AcceptsFeedback>true</AcceptsFeedback>
+    </PropertyGroup>
+    <ItemGroup>
+      <Content Include="changelog.md" />
+    </ItemGroup>
+</Project>
