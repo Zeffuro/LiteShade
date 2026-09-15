@@ -11,6 +11,7 @@ using LiteShade.Configuration;
 using LiteShade.Helpers;
 using LiteShade.Profiles;
 using GameObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
+using RenderCamera = FFXIVClientStructs.FFXIV.Client.Graphics.Render.Camera;
 
 namespace LiteShade.Graphics;
 
@@ -33,11 +34,13 @@ internal sealed unsafe class DepthOfField : IDisposable
     private readonly nint* _cocVTable;
     private volatile string _status = "Disabled";
     private volatile string _focusDescription = string.Empty;
+    private volatile float _focusDistance;
     private ulong? _focusTargetId;
     private string _targetDescription = string.Empty;
 
     public string Status => _status;
     public string FocusDescription => _focusDescription;
+    public float EffectiveFocusDistance => _focusDistance;
 
     public DepthOfField(ProfileService profiles)
     {
@@ -76,6 +79,7 @@ internal sealed unsafe class DepthOfField : IDisposable
         {
             _status = "Disabled";
             _focusDescription = string.Empty;
+            _focusDistance = 0;
             _focusTargetId = null;
             _hook!.Original(renderManager);
             return;
@@ -84,6 +88,7 @@ internal sealed unsafe class DepthOfField : IDisposable
         if (!CanApply(renderManager, dof.Pauses))
         {
             _focusDescription = string.Empty;
+            _focusDistance = 0;
             _focusTargetId = null;
             _hook!.Original(renderManager);
             return;
@@ -91,12 +96,13 @@ internal sealed unsafe class DepthOfField : IDisposable
 
         var manager = *_manager;
         var coc = Experimental.GetReadyDepthOfField(manager, *_resources, _cocVTable);
-        if (coc == null || !TryGetFocus(dof, out var distance, out var focusDescription)
+        if (coc == null || !TryGetFocus(dof, Experimental.GetMainCamera(renderManager), out var distance, out var focusDescription)
             || !float.IsFinite(manager->DepthOfField.CocNormalizationDivisor) || manager->DepthOfField.CocNormalizationDivisor <= 0
             || !float.IsFinite(1f / manager->DepthOfField.CocNormalizationDivisor))
         {
             _status = "Waiting for depth of field resources";
             _focusDescription = string.Empty;
+            _focusDistance = 0;
             _focusTargetId = null;
             _hook!.Original(renderManager);
             return;
@@ -105,6 +111,7 @@ internal sealed unsafe class DepthOfField : IDisposable
         var original = manager->DepthOfField;
         var nativeEnabled = (manager->Flags & Experimental.PostEffectFlags.DepthOfField) != 0;
         _focusDescription = focusDescription;
+        _focusDistance = distance;
 
         manager->DepthOfField.UseUpdatedDepthOfField = true;
         manager->DepthOfField.UseManualDepthOfField = false;
@@ -172,10 +179,10 @@ internal sealed unsafe class DepthOfField : IDisposable
         return true;
     }
 
-    private bool TryGetFocus(Settings settings, out float distance, out string description)
+    private bool TryGetFocus(Settings settings, RenderCamera* renderCamera, out float distance, out string description)
     {
         distance = settings.FocusDistance;
-        description = "Manual distance";
+        description = "Fixed distance";
         ulong? focusTargetId = null;
         var cameras = CameraManager.Instance();
         if (cameras == null || (uint)cameras->CameraIndex >= cameras->Cameras.Length)
@@ -184,12 +191,12 @@ internal sealed unsafe class DepthOfField : IDisposable
         }
 
         var camera = cameras->CurrentCamera;
-        if (camera == null || camera->RenderCamera == null || camera->RenderCamera->IsOrtho)
+        if (camera == null || renderCamera == null || camera->RenderCamera != renderCamera || renderCamera->IsOrtho)
         {
             return false;
         }
 
-        var fov = camera->RenderCamera->FoV;
+        var fov = renderCamera->FoV;
         if (!float.IsFinite(fov) || fov <= 0 || fov >= MathF.PI
             || !float.IsFinite(settings.FNumber) || settings.FNumber <= 0)
         {
@@ -199,7 +206,7 @@ internal sealed unsafe class DepthOfField : IDisposable
         if (settings.Focus != FocusMode.Manual)
         {
             var hasLookAt = (((Experimental.CameraState*)camera)->Flags & 1) != 0;
-            distance = hasLookAt ? Vector3.Distance(camera->Position, camera->LookAtVector) : 5f;
+            distance = hasLookAt ? -Vector4.Transform(new Vector4(camera->LookAtVector, 1f), renderCamera->ViewMatrix).Z : 5f;
             if (!float.IsFinite(distance) || distance <= 0)
             {
                 hasLookAt = false;
@@ -218,7 +225,7 @@ internal sealed unsafe class DepthOfField : IDisposable
                     Vector3 center = default;
                     ((GameObject*)target.Address)->GetCenterPosition(&center);
 
-                    var depth = -Vector4.Transform(new Vector4(center, 1f), camera->ViewMatrix).Z;
+                    var depth = -Vector4.Transform(new Vector4(center, 1f), renderCamera->ViewMatrix).Z;
                     if (float.IsFinite(depth) && depth > 0)
                     {
                         distance = MathF.Max(depth, 0.5f);

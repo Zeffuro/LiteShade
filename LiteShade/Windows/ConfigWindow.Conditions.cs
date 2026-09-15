@@ -116,11 +116,11 @@ internal sealed partial class ConfigWindow
         ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 40 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Rule", ImGuiTableColumnFlags.WidthStretch, 2);
         ImGui.TableSetupColumn("Profile", ImGuiTableColumnFlags.WidthStretch, 1);
-        ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 75 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, ImGui.CalcTextSize("Matches (lower priority)").X);
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
 
-        var active = _profiles.Selection.RuleId;
+        var context = _profiles.Context;
         for (var i = 0; i < _config.Rules.Count; i++)
         {
             var rule = _config.Rules[i];
@@ -155,8 +155,28 @@ internal sealed partial class ConfigWindow
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(_config.Profiles.FirstOrDefault(profile => profile.Id == rule.ProfileId)?.Name ?? "Missing profile");
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(!rule.Enabled ? "Off" : rule.Id == active ? "In use" : "On");
+            ImGui.TextUnformatted(RuleListStatus(rule, context));
         }
+    }
+
+    private string RuleListStatus(ProfileRule rule, ProfileContext context)
+    {
+        if (!rule.Enabled || !rule.IsValid || _config.Profiles.All(profile => profile.Id != rule.ProfileId))
+        {
+            return "Disabled";
+        }
+
+        if (!context.IsLoggedIn || context.IsTransitioning || RuleResolver.GetMismatch(rule, context) is not null)
+        {
+            return "No match";
+        }
+
+        if (!_config.Enabled || !_config.AutomaticProfiles || _profiles.OverrideProfileId.HasValue)
+        {
+            return "Matches";
+        }
+
+        return _profiles.Selection.RuleId == rule.Id ? "Active" : "Matches (lower priority)";
     }
 
     private void AddRule(bool useCurrent)

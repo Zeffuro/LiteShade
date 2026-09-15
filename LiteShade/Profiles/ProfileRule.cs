@@ -1,4 +1,5 @@
 using System;
+using LiteShade.Configuration;
 
 namespace LiteShade.Profiles;
 
@@ -51,11 +52,7 @@ public sealed class ProfileRule
             Enabled = false;
         }
 
-        Name = string.IsNullOrWhiteSpace(Name) ? "Unnamed rule" : Name.Trim();
-        if (Name.Length > 80)
-        {
-            Name = Name[..80];
-        }
+        Name = ColorProfile.NormalizeName(Name, "Unnamed rule");
 
         if (!IsValid)
         {

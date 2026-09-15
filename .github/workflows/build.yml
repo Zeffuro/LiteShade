@@ -39,7 +39,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.props') }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/packages.lock.json') }}
           restore-keys: |
             nuget-${{ runner.os }}-
 
@@ -52,7 +52,7 @@ jobs:
           Expand-Archive -Path dalamud.zip -DestinationPath $hooksPath -Force
 
       - name: Restore
-        run: dotnet restore ./LiteShade/LiteShade.csproj
+        run: dotnet restore ./LiteShade/LiteShade.csproj --locked-mode
 
       - name: Build Debug
         run: dotnet build ./LiteShade/LiteShade.csproj --configuration Debug --no-restore

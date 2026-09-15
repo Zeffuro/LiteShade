@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 
 namespace LiteShade.Configuration;
 
@@ -44,11 +45,7 @@ public sealed class ColorProfile
 
     public void Normalize()
     {
-        Name = string.IsNullOrWhiteSpace(Name) ? "Unnamed profile" : Name.Trim();
-        if (Name.Length > 80)
-        {
-            Name = Name[..80];
-        }
+        Name = NormalizeName(Name, "Unnamed profile");
 
         Strength = Clamp(Strength, 0f, 1f, 1f);
         Tint = Clamp(Tint, -1f, 1f, 0f);
@@ -70,4 +67,10 @@ public sealed class ColorProfile
 
     private static float Clamp(float value, float min, float max, float fallback)
         => float.IsFinite(value) ? Math.Clamp(value, min, max) : fallback;
+
+    internal static string NormalizeName(string? name, string fallback)
+    {
+        name = Regex.Replace(name ?? string.Empty, @"[\p{Cc}\p{Cf}]|#{2,}", " ").Trim();
+        return name.Length == 0 ? fallback : name[..Math.Min(name.Length, 80)];
+    }
 }

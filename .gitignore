@@ -5,4 +5,5 @@ obj/
 *.user
 *.suo
 *.lock.json
+!packages.lock.json
 *.zip

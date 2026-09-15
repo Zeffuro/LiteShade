@@ -24,6 +24,9 @@ internal sealed partial class ConfigWindow : Window
     private bool _reShadeLoaded;
     private Guid _editingProfileId;
     private Guid? _editingRuleId;
+    private bool _editorPreview;
+    private bool _editorShowOriginal;
+    private bool _editorPreviewDirty;
 
     public ConfigWindow(SystemConfiguration config, ProfileService profiles, ColorFilter filter) : base("LiteShade")
     {
@@ -50,7 +53,7 @@ internal sealed partial class ConfigWindow : Window
 
         if (ConfigRepository.SaveError is { } error)
         {
-            ImGui.TextColored(new Vector4(1f, 0.55f, 0.35f, 1f), error);
+            ImGui.TextWrapped(error);
             if (ImGui.SmallButton("Retry save"))
             {
                 Save();
@@ -73,22 +76,27 @@ internal sealed partial class ConfigWindow : Window
         ImGui.Separator();
         var selection = _profiles.Selection;
         var selected = _config.Profiles.FirstOrDefault(profile => profile.Id == selection.ProfileId);
-        ImGui.TextUnformatted($"Active profile: {selected?.Name ?? "None"}");
-        var rule = _config.Rules.FirstOrDefault(item => item.Id == selection.RuleId);
-        ImGui.SameLine();
-        ImGui.TextDisabled(_profiles.OverrideProfileId.HasValue ? "override" : rule is null ? "default" : rule.Name);
-        if (_profiles.OverrideProfileId.HasValue)
+        var editing = _config.Profiles.FirstOrDefault(profile => profile.Id == _editingProfileId);
+        ImGui.TextUnformatted(_editorPreview
+            ? _editorShowOriginal ? "Previewing: original" : $"Previewing: {editing?.Name ?? "None"}"
+            : $"Active profile: {selected?.Name ?? "None"}");
+        if (!_editorPreview)
         {
+            var rule = _config.Rules.FirstOrDefault(item => item.Id == selection.RuleId);
             ImGui.SameLine();
-            if (ImGui.SmallButton("Clear override"))
+            ImGui.TextDisabled(_profiles.OverrideProfileId.HasValue ? "override" : rule is null ? "default" : rule.Name);
+            if (_profiles.OverrideProfileId.HasValue)
             {
-                _profiles.SetOverride(null);
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Clear override"))
+                {
+                    _profiles.SetOverride(null);
+                }
             }
         }
 
         if (_editingProfileId != selection.ProfileId)
         {
-            var editing = _config.Profiles.FirstOrDefault(profile => profile.Id == _editingProfileId);
             ImGui.TextDisabled($"Editing profile: {editing?.Name ?? "None"}");
         }
         using var tabs = ImRaii.TabBar("LiteShadeTabs");
@@ -130,12 +138,40 @@ internal sealed partial class ConfigWindow : Window
             }
         }
 #endif
+        if (_editorPreviewDirty)
+        {
+            PublishEditorPreview(_config.Profiles.First(profile => profile.Id == _editingProfileId));
+        }
     }
 
     private void Save()
     {
         ConfigRepository.Save(_config);
         _profiles.Refresh();
+        MarkPreviewDirty();
+    }
+
+    public void StopPreview()
+    {
+        if (!_editorPreview)
+        {
+            return;
+        }
+
+        _editorPreview = false;
+        _editorShowOriginal = false;
+        _editorPreviewDirty = false;
+        _profiles.SetPreview(null);
+    }
+
+    public override void OnClose() => StopPreview();
+
+    private void MarkPreviewDirty()
+    {
+        if (_editorPreview)
+        {
+            _editorPreviewDirty = true;
+        }
     }
 
     private bool ProfileCombo(string label, ref Guid selected)

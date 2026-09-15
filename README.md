@@ -1,7 +1,10 @@
 # LiteShade
 
-Lightweight colour adjustments for FFXIV, with custom profiles and automatic selection by territory, weather and other conditions.
+A little less green.
 
-Uses the game's native colour filter and optional depth of field, leaving the UI alone. Pick a built-in preset or make your own, and share profiles with their conditions.
+Colour adjustments, GPose filters, optional depth of field and vignette.
+Uses the game's own effects and leaves the UI alone.
+
+Pick a preset or make your own. Share profiles and switch them automatically by zone, weather, Eorzea time and more.
 
 Open with `/liteshade`.

@@ -147,9 +147,26 @@ internal sealed partial class ConfigWindow
             }
         }
 
+        if (_transferFailed && _transferMessage is { } error)
+        {
+            ImGui.TextWrapped(error);
+        }
+
         if (ImGui.Button(_replaceProfiles ? "Replace and import" : "Import"))
         {
-            _editingProfileId = ProfileTransfer.Import(_config, _import, _importRules, _enableImportedRules, _replaceProfiles);
+            Guid importedProfileId;
+            try
+            {
+                importedProfileId = ProfileTransfer.Import(_config, _import, _importRules, _enableImportedRules, _replaceProfiles);
+            }
+            catch (FormatException exception)
+            {
+                TransferError(exception);
+                return false;
+            }
+
+            StopPreview();
+            _editingProfileId = importedProfileId;
             if (_replaceProfiles)
             {
                 _editingRuleId = null;
@@ -204,6 +221,7 @@ internal sealed partial class ConfigWindow
         ImGui.TextWrapped("Colour adjustments will be disabled. You can pick a new starting look.");
         if (ImGui.Button("Reset"))
         {
+            StopPreview();
             _config.Reset();
             _editingProfileId = _config.DefaultProfileId;
             _editingRuleId = null;

@@ -19,6 +19,8 @@ internal sealed class WelcomeWindow : Window
     private ColorProfile? _preview;
     private bool _showOriginal;
 
+    public bool HasPreview => _preview is not null;
+
     public WelcomeWindow(SystemConfiguration config, ProfileService profiles)
         : base("LiteShade presets###LiteShadeWelcome")
     {
@@ -35,6 +37,7 @@ internal sealed class WelcomeWindow : Window
 
     public void Show()
     {
+        PluginState.ConfigWindow.StopPreview();
         _selectedPreset = -1;
         _preview = null;
         _showOriginal = false;
@@ -70,7 +73,7 @@ internal sealed class WelcomeWindow : Window
 
             var strength = _preview.Strength;
             var previous = strength;
-            if (ImGui.SliderFloat("Colour strength", ref strength, 0f, 1f, "%.2f"))
+            if (ImGui.SliderFloat("Adjustment strength", ref strength, 0f, 1f, "%.2f"))
             {
                 _preview.Strength = float.IsFinite(strength) ? Math.Clamp(strength, 0f, 1f) : previous;
                 UpdatePreview();
@@ -117,8 +120,17 @@ internal sealed class WelcomeWindow : Window
             return;
         }
 
-        _preview.Name = UniqueName(_preview.Name);
-        _config.Profiles.Add(_preview);
+        if (CanReuseInitialNeutral())
+        {
+            _preview.Id = _config.Profiles[0].Id;
+            _config.Profiles[0] = _preview;
+        }
+        else
+        {
+            _preview.Name = UniqueName(_preview.Name);
+            _config.Profiles.Add(_preview);
+        }
+
         _config.DefaultProfileId = _preview.Id;
         _config.Enabled = true;
         _config.AutomaticProfiles = false;
@@ -126,12 +138,34 @@ internal sealed class WelcomeWindow : Window
         Save();
         _profiles.SetOverride(null);
         _profiles.SetPreview(null);
+        _preview = null;
         IsOpen = false;
+    }
+
+    private bool CanReuseInitialNeutral()
+    {
+        if (_config.HasSeenWelcome || _config.Enabled || _config.AutomaticProfiles || _config.Rules.Count != 0
+            || _config.Profiles.Count != 1 || _config.DefaultProfileId != _config.Profiles[0].Id)
+        {
+            return false;
+        }
+
+        var profile = _config.Profiles[0];
+        return profile.Name == "Neutral" && profile.Strength == 1f && profile.Tint == 0f && profile.Warmth == 0f
+            && profile.Saturation == 1f && profile.Contrast == 1f && profile.Exposure == 0f && profile.GameFilterId == 0
+            && !profile.Vignette && profile.VignetteAmount == 0.35f && profile.VignetteRadius == 0.6f
+            && profile.VignetteShape == 0.5f && profile.VignetteColor == 0xFF000000 && !profile.DepthOfField
+            && profile.Focus == FocusMode.Target && profile.FocusDistance == 5f && profile.FNumber == 4f;
     }
 
     private void Skip()
     {
-        _profiles.SetPreview(null);
+        if (_preview is not null)
+        {
+            _profiles.SetPreview(null);
+            _preview = null;
+        }
+
         if (!_config.HasSeenWelcome)
         {
             _config.HasSeenWelcome = true;

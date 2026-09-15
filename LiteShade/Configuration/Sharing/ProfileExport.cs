@@ -102,6 +102,8 @@ internal sealed class ProfileExport
             throw new FormatException("Profile data has no profiles.");
         }
 
+        CheckCounts(Profiles.Count, Rules.Count);
+
         var profiles = Profiles.Select(CopyProfile).ToList();
         var profileIds = new HashSet<Guid>();
         foreach (var profile in profiles)
@@ -151,6 +153,14 @@ internal sealed class ProfileExport
         var copy = profile.Copy();
         copy.Normalize();
         return copy;
+    }
+
+    public static void CheckCounts(int profiles, int rules)
+    {
+        if (profiles > 512 || rules > 4096)
+        {
+            throw new FormatException("A shared setup can contain up to 512 profiles and 4096 rules.");
+        }
     }
 
     public static ProfileRule CopyRule(ProfileRule rule)

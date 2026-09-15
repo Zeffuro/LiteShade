@@ -48,6 +48,9 @@ internal static class ProfileTransfer
             throw new InvalidOperationException("Profiles are unavailable.");
         }
 
+        ProfileExport.CheckCounts((replace ? 0 : target.Profiles.Count) + source.Profiles.Count,
+            (replace ? 0 : target.Rules.Count) + (includeRules ? source.Rules.Count : 0));
+
         var importedProfiles = new List<ColorProfile>(source.Profiles.Count);
         var profileIds = new Dictionary<Guid, Guid>();
         var names = new HashSet<string>(replace ? [] : target.Profiles.Select(profile => profile.Name), StringComparer.OrdinalIgnoreCase);

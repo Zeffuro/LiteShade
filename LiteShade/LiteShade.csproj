@@ -8,9 +8,12 @@
         <Author>Zeffuro</Author>
         <Name>LiteShade</Name>
         <InternalName>LiteShade</InternalName>
-        <Punchline>Lightweight colours for Eorzea.</Punchline>
-        <Description>Native colour adjustments for the world and characters.</Description>
-        <Tags>qol;colour;color;graphics;shaders;presets;weather;gpose</Tags>
+        <Punchline>A little less green.</Punchline>
+        <Description>Tweak the game's colours, use GPose filters anywhere, and add optional depth of field or vignette.</Description>
+        <RepoUrl>https://github.com/Zeffuro/LiteShade</RepoUrl>
+        <IconUrl>https://raw.githubusercontent.com/Zeffuro/LiteShade/master/Images/icon.png</IconUrl>
+        <ImageUrls></ImageUrls>
+        <Tags>graphics;colour;color;filters;shaders;presets;gpose;dof;vignette;qol</Tags>
         <AcceptsFeedback>true</AcceptsFeedback>
     </PropertyGroup>
     <ItemGroup>

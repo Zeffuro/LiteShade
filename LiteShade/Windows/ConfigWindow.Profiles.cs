@@ -14,10 +14,15 @@ internal sealed partial class ConfigWindow
     {
         if (ImGui.Button("Presets..."))
         {
+            StopPreview();
             PluginState.WelcomeWindow.Show();
         }
 
-        ProfileCombo("Profile", ref _editingProfileId);
+        if (ProfileCombo("Profile", ref _editingProfileId))
+        {
+            StopPreview();
+        }
+
         var profile = _config.Profiles.FirstOrDefault(item => item.Id == _editingProfileId) ?? _config.GetDefaultProfile();
         _editingProfileId = profile.Id;
         ImGui.SameLine();
@@ -31,10 +36,54 @@ internal sealed partial class ConfigWindow
         }
 
         ImGui.TextDisabled($"Default: {_config.GetDefaultProfile().Name}");
+        using (ImRaii.Disabled(PluginState.WelcomeWindow.IsOpen || PluginState.WelcomeWindow.HasPreview))
+        {
+            if (ImGui.Button(_editorPreview ? "Stop preview" : "Preview"))
+            {
+                if (_editorPreview)
+                {
+                    StopPreview();
+                }
+                else
+                {
+                    _editorPreview = true;
+                    _editorShowOriginal = false;
+                    MarkPreviewDirty();
+                }
+            }
+        }
+
+        if (_editorPreview)
+        {
+            ImGui.SameLine();
+            if (ImGui.Checkbox("Show original", ref _editorShowOriginal))
+            {
+                MarkPreviewDirty();
+            }
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(PluginState.WelcomeWindow.IsOpen || PluginState.WelcomeWindow.HasPreview
+            || (_config.Enabled && _profiles.OverrideProfileId == profile.Id)))
+        {
+            if (ImGui.Button("Use now"))
+            {
+                StopPreview();
+                if (!_config.Enabled)
+                {
+                    _config.Enabled = true;
+                    Save();
+                }
+
+                _profiles.SetOverride(profile.Id);
+            }
+        }
+
         ImGui.Separator();
 
         if (ImGui.Button("New"))
         {
+            StopPreview();
             var created = new ColorProfile();
             _config.Profiles.Add(created);
             _editingProfileId = created.Id;
@@ -45,6 +94,7 @@ internal sealed partial class ConfigWindow
         ImGui.SameLine();
         if (ImGui.Button("Duplicate"))
         {
+            StopPreview();
             var created = profile.Duplicate();
             _config.Profiles.Add(created);
             _editingProfileId = created.Id;
@@ -79,7 +129,7 @@ internal sealed partial class ConfigWindow
 
         ImGui.Spacing();
         ImGui.TextUnformatted("Colour adjustments");
-        if (profile.Id == _profiles.Selection.ProfileId)
+        if (ShowRendererStatus(profile))
         {
             ImGui.SameLine();
             ImGui.TextDisabled(_filter.Status);
@@ -101,13 +151,13 @@ internal sealed partial class ConfigWindow
 
         ImGui.Separator();
         var depthOfField = profile.DepthOfField;
-        if (ImGui.Checkbox("Depth of field", ref depthOfField))
+        if (ImGui.Checkbox("Depth of field (experimental)", ref depthOfField))
         {
             profile.DepthOfField = depthOfField;
             Save();
         }
 
-        if (profile.Id == _profiles.Selection.ProfileId)
+        if (ShowRendererStatus(profile))
         {
             ImGui.SameLine();
             ImGui.TextDisabled(PluginState.DepthOfField?.Status ?? "Unavailable");
@@ -131,7 +181,7 @@ internal sealed partial class ConfigWindow
             ImGui.SetTooltip("Overrides the game's vignette while enabled.");
         }
 
-        if (profile.Id == _profiles.Selection.ProfileId)
+        if (ShowRendererStatus(profile))
         {
             ImGui.SameLine();
             ImGui.TextDisabled(PluginState.Vignette?.Status ?? "Unavailable");
@@ -151,9 +201,9 @@ internal sealed partial class ConfigWindow
             {
                 ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
-                Slider("Colour strength", profile.Strength, 0f, 1f, value => profile.Strength = value);
-                Slider("Tint", profile.Tint, -1f, 1f, value => profile.Tint = value);
-                Slider("Temperature", profile.Warmth, -1f, 1f, value => profile.Warmth = value);
+                Slider("Adjustment strength", profile.Strength, 0f, 1f, value => profile.Strength = value);
+                Slider("Tint", profile.Tint, -1f, 1f, value => profile.Tint = value, "Green to magenta balance.");
+                Slider("Temperature", profile.Warmth, -1f, 1f, value => profile.Warmth = value, "Cool to warm balance.");
                 Slider("Saturation", profile.Saturation, 0f, 2f, value => profile.Saturation = value);
                 DrawGameFilter(profile);
             }
@@ -169,14 +219,14 @@ internal sealed partial class ConfigWindow
         ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
         Slider("Contrast", profile.Contrast, 0.5f, 1.5f, value => profile.Contrast = value);
-        Slider("Exposure", profile.Exposure, -2f, 2f, value => profile.Exposure = value);
+        Slider("Brightness", profile.Exposure, -2f, 2f, value => profile.Exposure = value);
     }
 
     private void DrawGameFilter(ColorProfile profile)
     {
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted("Game filter");
+        ImGui.TextUnformatted("Game colour filter");
         ImGui.TableNextColumn();
         var selected = profile.GameFilterId;
         var preview = selected == 0 ? "None" : $"Unavailable ({selected})";
@@ -241,6 +291,7 @@ internal sealed partial class ConfigWindow
         {
             profile.VignetteColor = ImGui.ColorConvertFloat4ToU32(colour);
             _profiles.Refresh();
+            MarkPreviewDirty();
         }
 
         if (ImGui.IsItemDeactivatedAfterEdit())
@@ -260,7 +311,7 @@ internal sealed partial class ConfigWindow
         ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
         Slider("Aperture", profile.FNumber, 0.5f, 32f, value => profile.FNumber = value,
-            "Lower values blur more. Ctrl-click to type a value.");
+            "Lower values blur more. Ctrl-click to type a value.", ImGuiSliderFlags.Logarithmic);
 
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
@@ -268,13 +319,13 @@ internal sealed partial class ConfigWindow
         ImGui.TableNextColumn();
         var focus = profile.Focus;
         ImGui.SetNextItemWidth(-1);
-        using (var combo = ImRaii.Combo("##Focus", focus.ToString()))
+        using (var combo = ImRaii.Combo("##Focus", FocusLabel(focus)))
         {
             if (combo)
             {
                 foreach (var mode in Enum.GetValues<FocusMode>())
                 {
-                    if (ImGui.Selectable(mode.ToString(), mode == focus))
+                    if (ImGui.Selectable(FocusLabel(mode), mode == focus))
                     {
                         focus = mode;
                         profile.Focus = focus;
@@ -286,20 +337,20 @@ internal sealed partial class ConfigWindow
 
         if (focus == FocusMode.Manual)
         {
-            Drag("Focus distance", profile.FocusDistance, 0.5f, 200f, value => profile.FocusDistance = value,
+            Drag("Fixed distance", profile.FocusDistance, 0.5f, 200f, value => profile.FocusDistance = value,
                 "Distance from the camera. Ctrl-click to type a value.");
         }
 
-        var description = profile.Id == _profiles.Selection.ProfileId
-            ? PluginState.DepthOfField?.FocusDescription
-            : null;
+        var depthOfField = ShowRendererStatus(profile) ? PluginState.DepthOfField : null;
+        var description = depthOfField?.FocusDescription;
         if (!string.IsNullOrEmpty(description))
         {
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted("Focused on");
+            ImGui.TextUnformatted("Effective focus");
             ImGui.TableNextColumn();
-            ImGui.TextDisabled(description);
+            var distance = depthOfField!.EffectiveFocusDistance;
+            ImGui.TextDisabled(float.IsFinite(distance) ? $"{description} · {distance:F2} yalms" : description);
         }
     }
 
@@ -317,6 +368,7 @@ internal sealed partial class ConfigWindow
         ImGui.TextWrapped($"Delete {profile.Name}? Rules using it will be disabled.");
         if (ImGui.Button("Delete profile"))
         {
+            StopPreview();
             _config.Profiles.Remove(profile);
             foreach (var rule in _config.Rules.Where(rule => rule.ProfileId == profile.Id))
             {
@@ -339,7 +391,8 @@ internal sealed partial class ConfigWindow
         return false;
     }
 
-    private void Slider(string label, float current, float min, float max, Action<float> set, string? tooltip = null)
+    private void Slider(string label, float current, float min, float max, Action<float> set, string? tooltip = null,
+        ImGuiSliderFlags flags = ImGuiSliderFlags.None)
     {
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
@@ -347,10 +400,11 @@ internal sealed partial class ConfigWindow
         ImGui.TableNextColumn();
         var previous = current;
         ImGui.SetNextItemWidth(-1);
-        if (ImGui.SliderFloat($"##{label}", ref current, min, max, "%.2f"))
+        if (ImGui.SliderFloat($"##{label}", ref current, min, max, "%.2f", flags))
         {
             set(float.IsFinite(current) ? Math.Clamp(current, min, max) : previous);
             _profiles.Refresh();
+            MarkPreviewDirty();
         }
 
         if (ImGui.IsItemHovered())
@@ -376,6 +430,7 @@ internal sealed partial class ConfigWindow
         {
             set(float.IsFinite(current) ? Math.Clamp(current, min, max) : previous);
             _profiles.Refresh();
+            MarkPreviewDirty();
         }
 
         if (ImGui.IsItemHovered())
@@ -388,4 +443,21 @@ internal sealed partial class ConfigWindow
             Save();
         }
     }
+
+    private bool ShowRendererStatus(ColorProfile profile)
+        => !PluginState.WelcomeWindow.IsOpen && (_editorPreview || profile.Id == _profiles.Selection.ProfileId);
+
+    private void PublishEditorPreview(ColorProfile profile)
+    {
+        _profiles.SetPreview(_editorShowOriginal ? ColorProfile.CreateNeutral() : profile);
+        _editorPreviewDirty = false;
+    }
+
+    private static string FocusLabel(FocusMode focus) => focus switch
+    {
+        FocusMode.Target => "Selected target",
+        FocusMode.Camera => "Camera focus point",
+        FocusMode.Manual => "Fixed distance",
+        _ => "Selected target",
+    };
 }
