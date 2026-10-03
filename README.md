@@ -1,4 +1,5 @@
 # LiteShade
+[![Download count](https://img.shields.io/endpoint?url=https://qzysathwfhebdai6xgauhz4q7m0mzmrf.lambda-url.us-east-1.on.aws/LiteShade)](https://github.com/Zeffuro/LiteShade)
 
 A little less green.
 
