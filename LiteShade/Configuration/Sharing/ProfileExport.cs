@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LiteShade.Profiles;
@@ -11,7 +12,8 @@ namespace LiteShade.Configuration.Sharing;
 
 internal sealed class ProfileExport
 {
-    private const string Prefix = "LiteShade1:";
+    private const string Prefix = "LiteShade2:";
+    private const string LegacyPrefix = "LiteShade1:";
     private const int MaxInputCharacters = 1024 * 1024;
     private const int MaxJsonBytes = 2 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -19,10 +21,16 @@ internal sealed class ProfileExport
         PropertyNameCaseInsensitive = true,
         MaxDepth = 32,
         IgnoreReadOnlyProperties = true,
+        IncludeFields = true,
     };
 
     [JsonRequired]
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
+
+    public ProfilePack? Pack { get; set; }
+    public string? MinimumPluginVersion { get; set; }
+
+    public static string CurrentPluginVersion => typeof(ProfileExport).Assembly.GetName().Version?.ToString() ?? "1.0.0.0";
 
     [JsonRequired]
     public Guid DefaultProfileId { get; set; }
@@ -50,7 +58,7 @@ internal sealed class ProfileExport
             gzip.Write(json, 0, json.Length);
         }
 
-        var text = Prefix + Convert.ToBase64String(output.ToArray());
+        var text = (Version == 1 ? LegacyPrefix : Prefix) + Convert.ToBase64String(output.ToArray());
         if (text.Length > MaxInputCharacters)
         {
             throw new InvalidOperationException("Profile data is too large to export.");
@@ -72,16 +80,22 @@ internal sealed class ProfileExport
             throw new FormatException("Profile data is too large.");
         }
 
-        if (!text.StartsWith(Prefix, StringComparison.Ordinal))
+        var prefix = text.StartsWith(Prefix, StringComparison.Ordinal) ? Prefix : LegacyPrefix;
+        if (!text.StartsWith(prefix, StringComparison.Ordinal))
         {
             throw new FormatException("Profile data is not valid LiteShade data.");
         }
 
         try
         {
-            var json = Decompress(Convert.FromBase64String(text[Prefix.Length..]));
+            var json = Decompress(Convert.FromBase64String(text[prefix.Length..]));
             var profileExport = JsonSerializer.Deserialize<ProfileExport>(json, JsonOptions)
                 ?? throw new FormatException("Profile data is not valid.");
+            if (profileExport.Version != (prefix == Prefix ? 2 : 1))
+            {
+                throw new FormatException("Profile data has an unsupported version.");
+            }
+
             return profileExport.Copy();
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or JsonException)
@@ -92,9 +106,39 @@ internal sealed class ProfileExport
 
     public ProfileExport Copy()
     {
-        if (Version != 1)
+        if (Version is not (1 or 2))
         {
             throw new FormatException("Profile data has an unsupported version.");
+        }
+
+        if (Version == 2 && (Pack is null || MinimumPluginVersion is null))
+        {
+            throw new FormatException("Profile data is missing pack information.");
+        }
+
+        if (MinimumPluginVersion is not null)
+        {
+            if (!System.Version.TryParse(MinimumPluginVersion, out var required))
+            {
+                throw new FormatException("Profile data has an invalid minimum plugin version.");
+            }
+
+            required = new System.Version(required.Major, required.Minor, Math.Max(0, required.Build), Math.Max(0, required.Revision));
+            if (required > System.Version.Parse(CurrentPluginVersion))
+            {
+                throw new FormatException($"This pack requires LiteShade {MinimumPluginVersion} or newer.");
+            }
+        }
+
+        var pack = Pack?.Copy();
+        if (pack is not null)
+        {
+            if (pack.Id == Guid.Empty || pack.Revision < 1)
+            {
+                throw new FormatException("Profile data has invalid pack information.");
+            }
+
+            pack.Normalize();
         }
 
         if (Profiles is null || Rules is null || Profiles.Count == 0)
@@ -136,6 +180,9 @@ internal sealed class ProfileExport
 
         return new ProfileExport
         {
+            Version = Version,
+            Pack = pack,
+            MinimumPluginVersion = MinimumPluginVersion,
             DefaultProfileId = DefaultProfileId,
             AutomaticProfiles = AutomaticProfiles,
             Profiles = profiles,
@@ -150,10 +197,26 @@ internal sealed class ProfileExport
             throw new FormatException("Profile data contains an empty profile.");
         }
 
+        if (!float.IsFinite(profile.BlackLevel) || !float.IsFinite(profile.WhiteLevel)
+            || profile.BlackLevel is < 0f or > 0.95f || profile.WhiteLevel is < 0.05f or > 1f
+            || profile.WhiteLevel < profile.BlackLevel + 0.05f
+            || !float.IsFinite(profile.OutputBlackLevel) || !float.IsFinite(profile.OutputWhiteLevel)
+            || profile.OutputBlackLevel is < 0f or > 0.95f || profile.OutputWhiteLevel is < 0.05f or > 1f
+            || profile.OutputWhiteLevel < profile.OutputBlackLevel + 0.05f
+            || !ValidChannel(profile.RedChannel) || !ValidChannel(profile.GreenChannel) || !ValidChannel(profile.BlueChannel))
+        {
+            throw new FormatException("Profile data contains invalid levels or channel mixing.");
+        }
+
         var copy = profile.Copy();
         copy.Normalize();
         return copy;
     }
+
+    private static bool ValidChannel(Vector3 channel)
+        => float.IsFinite(channel.X) && channel.X is >= -2f and <= 2f
+            && float.IsFinite(channel.Y) && channel.Y is >= -2f and <= 2f
+            && float.IsFinite(channel.Z) && channel.Z is >= -2f and <= 2f;
 
     public static void CheckCounts(int profiles, int rules)
     {

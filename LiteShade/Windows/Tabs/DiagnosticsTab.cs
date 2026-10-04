@@ -1,12 +1,26 @@
 #if DEBUG
 using Dalamud.Bindings.ImGui;
+using LiteShade.Graphics;
 using LiteShade.Integrations;
+using LiteShade.Profiles;
 
-namespace LiteShade.Windows;
+namespace LiteShade.Windows.Tabs;
 
-internal sealed partial class ConfigWindow
+internal sealed class DiagnosticsTab
 {
-    private void DrawDiagnostics()
+    private readonly ProfileService _profiles;
+    private readonly ColorFilter _filter;
+    private readonly ContextNames _names;
+    public bool ReShadeLoaded { get; private set; } = ReShadeDetector.IsLoaded();
+
+    public DiagnosticsTab(ProfileService profiles, ColorFilter filter, ContextNames names)
+    {
+        _profiles = profiles;
+        _filter = filter;
+        _names = names;
+    }
+
+    public void Draw()
     {
         var context = _profiles.Context;
         ImGui.TextUnformatted($"Rendering: {_filter.Status}");
@@ -20,10 +34,10 @@ internal sealed partial class ConfigWindow
         ImGui.TextUnformatted($"Eorzea time: {(context.DayTimeSeconds is { } seconds ? System.TimeSpan.FromSeconds(seconds).ToString(@"hh\:mm\:ss") : "Unavailable")}");
         ImGui.TextUnformatted($"In duty: {context.InDuty} | In combat: {context.InCombat}");
         ImGui.Separator();
-        ImGui.TextUnformatted($"ReShade loaded: {_reShadeLoaded}");
+        ImGui.TextUnformatted($"ReShade loaded: {ReShadeLoaded}");
         if (ImGui.Button("Rescan loaded modules"))
         {
-            _reShadeLoaded = ReShadeDetector.IsLoaded();
+            ReShadeLoaded = ReShadeDetector.IsLoaded();
         }
     }
 }

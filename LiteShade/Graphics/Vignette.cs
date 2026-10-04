@@ -4,6 +4,7 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Graphics.PostEffect;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Render;
 using LiteShade.Configuration;
 using LiteShade.Helpers;
@@ -21,9 +22,7 @@ internal sealed unsafe class Vignette : IDisposable
     private readonly IClientState _client = IClientState.Get();
     private readonly ICondition _conditions = ICondition.Get();
 
-    private readonly Hook<Experimental.RenderViewDelegate>? _hook;
-    private readonly Experimental.PostEffectManager** _manager;
-    private readonly Experimental.PostEffectResources** _resources;
+    private readonly Hook<Manager.Delegates.RenderView>? _hook;
 
     private volatile string _status = "Disabled";
 
@@ -34,11 +33,8 @@ internal sealed unsafe class Vignette : IDisposable
         _profiles = profiles;
         try
         {
-            var scanner = ISigScanner.Get();
-            _manager = (Experimental.PostEffectManager**)scanner.GetStaticAddressFromSig(Experimental.ManagerSignature);
-            _resources = (Experimental.PostEffectResources**)scanner.GetStaticAddressFromSig(Experimental.ResourcesSignature);
-            _hook = IGameInteropProvider.Get().HookFromAddress<Experimental.RenderViewDelegate>(
-                scanner.ScanText(Experimental.RenderViewSignature), RenderView);
+            _hook = IGameInteropProvider.Get().HookFromAddress<Manager.Delegates.RenderView>(
+                Manager.MemberFunctionPointers.RenderView, RenderView);
             _hook.Enable();
         }
         catch (Exception exception)
@@ -73,8 +69,8 @@ internal sealed unsafe class Vignette : IDisposable
             return;
         }
 
-        var manager = *_manager;
-        if (!Experimental.IsVignetteReady(manager, *_resources))
+        var manager = PostEffectManager.Instance();
+        if (!Experimental.IsVignetteReady(manager, PostEffectResources.Instance()))
         {
             _status = "Waiting for vignette resources";
             _hook!.Original(renderManager, enabled, view);
@@ -82,17 +78,17 @@ internal sealed unsafe class Vignette : IDisposable
         }
 
         var original = manager->Vignetting;
-        var nativeEnabled = (manager->Flags & Experimental.PostEffectFlags.Vignetting) != 0;
+        var nativeEnabled = (manager->Flags & PostEffectFlags.Vignetting) != 0;
         var radiusSquared = vignette.Radius * vignette.Radius;
 
-        manager->Vignetting = new Experimental.VignettingParameters
+        manager->Vignetting = new PostEffectVignettingParameters
         {
             AspectRatioBlend = vignette.Shape,
             RadiusSquared = radiusSquared,
             Falloff = vignette.Amount / (1 - radiusSquared),
             Color = new Vector3(vignette.Color & 0xFF, (vignette.Color >> 8) & 0xFF, (vignette.Color >> 16) & 0xFF) / 255f,
         };
-        manager->Flags |= Experimental.PostEffectFlags.Vignetting;
+        manager->Flags |= PostEffectFlags.Vignetting;
 
         try
         {
@@ -101,12 +97,12 @@ internal sealed unsafe class Vignette : IDisposable
         }
         finally
         {
-            if (*_manager == manager)
+            if (PostEffectManager.Instance() == manager)
             {
                 manager->Vignetting = original;
                 if (!nativeEnabled)
                 {
-                    manager->Flags &= ~Experimental.PostEffectFlags.Vignetting;
+                    manager->Flags &= ~PostEffectFlags.Vignetting;
                 }
             }
         }

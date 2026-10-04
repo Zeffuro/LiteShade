@@ -2,12 +2,24 @@ using System;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 using LiteShade.Configuration;
+using LiteShade.Profiles;
 
-namespace LiteShade.Windows;
+namespace LiteShade.Windows.Tabs;
 
-internal sealed partial class ConfigWindow
+internal sealed class OptionsTab
 {
-    private void DrawOptions()
+    private readonly SystemConfiguration _config;
+    private readonly ProfileService _profiles;
+    private readonly Action _save;
+
+    public OptionsTab(SystemConfiguration config, ProfileService profiles, Action save)
+    {
+        _config = config;
+        _profiles = profiles;
+        _save = save;
+    }
+
+    public void Draw()
     {
         ImGui.TextUnformatted("Pause effects during:");
         using (var table = ImRaii.Table("Pause options", 5, ImGuiTableFlags.SizingStretchProp))
@@ -20,9 +32,10 @@ internal sealed partial class ConfigWindow
                 ImGui.TableSetupColumn("Idle camera", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableSetupColumn("Portrait mode", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableHeadersRow();
-                DrawPauseRow("Colour adjustments", _config.ColorPauses, pauses => _config.ColorPauses = pauses);
-                DrawPauseRow("Depth of field", _config.DepthOfFieldPauses, pauses => _config.DepthOfFieldPauses = pauses);
-                DrawPauseRow("Vignette", _config.VignettePauses, pauses => _config.VignettePauses = pauses);
+                foreach (var effect in Effects.All)
+                {
+                    DrawPauseRow(effect.Label(), _config.GetPauses(effect), pauses => _config.EffectPauses[effect] = pauses);
+                }
             }
         }
 
@@ -36,7 +49,7 @@ internal sealed partial class ConfigWindow
 
         if (ImGui.IsItemDeactivatedAfterEdit())
         {
-            Save();
+            _save();
         }
         if (ImGui.IsItemHovered())
         {
@@ -68,7 +81,7 @@ internal sealed partial class ConfigWindow
         if (ImGui.Checkbox($"##{option}", ref enabled))
         {
             set(enabled ? pauses | option : pauses & ~option);
-            Save();
+            _save();
         }
     }
 }

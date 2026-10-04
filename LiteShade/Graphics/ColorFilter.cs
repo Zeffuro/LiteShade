@@ -6,6 +6,7 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Graphics.PostEffect;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Render;
 using LiteShade.Configuration;
 using LiteShade.Helpers;
@@ -15,7 +16,8 @@ namespace LiteShade.Graphics;
 
 internal sealed unsafe class ColorFilter : IDisposable
 {
-    public readonly record struct Settings(ColorMatrix Matrix, uint GameFilterId, PauseOptions Pauses);
+    public readonly record struct Settings(ColorMatrix Matrix, Vector3 Shadows, Vector3 Highlights, uint GameFilterId, PauseOptions Pauses,
+        PauseOptions ShadowHighlightPauses, PauseOptions GameFilterPauses);
 
     private readonly ProfileService _profiles;
 
@@ -23,25 +25,27 @@ internal sealed unsafe class ColorFilter : IDisposable
     private readonly ICondition _conditions = ICondition.Get();
     private readonly IClientState _client = IClientState.Get();
 
-    private readonly Hook<Experimental.RenderViewDelegate>? _renderHook;
-    private readonly Hook<Experimental.DrawFilterDelegate>? _drawHook;
-    private readonly Experimental.PostEffectManager** _manager;
+    private readonly Hook<Manager.Delegates.RenderView>? _renderHook;
+    private readonly Hook<PostEffectColorFilterDarkBlend.Delegates.Draw>? _drawHook;
 
-    private readonly nint _drawAddress;
+    private readonly PostEffectColorFilterDarkBlend.PostEffectColorFilterDarkBlendVirtualTable* _vtable;
 
-    private Experimental.PostEffectManager* _activeManager;
-    private Experimental.FilterPart* _activePart;
+    private PostEffectManager* _activeManager;
+    private PostEffectColorFilterDarkBlend* _activePart;
     private ColorMatrix _matrix;
+    private ColorMatrix _darkMatrix;
+    private Vector3 _darkParameters;
 
     private bool _applied;
     private volatile string _status = FilterStatus.WaitingForScene;
+    private volatile Effect _pausedEffects;
 
     public string Status => _status;
+    public string StatusFor(Effect effect) => (_pausedEffects & effect) != 0 ? "Paused" : _status;
     public IReadOnlyList<GameFilter> GameFilters { get; } = [];
     public string? GameFiltersError { get; }
     private readonly Dictionary<uint, GameFilter> _gameFilters = [];
 
-    // TODO: Swap to FFXIVClientStructs when in main Dalamud.
     public ColorFilter(ProfileService profiles)
     {
         _profiles = profiles;
@@ -58,15 +62,10 @@ internal sealed unsafe class ColorFilter : IDisposable
 
         try
         {
-            var scanner = ISigScanner.Get();
             var interop = IGameInteropProvider.Get();
-            var vtable = (nint*)scanner.GetStaticAddressFromSig(Experimental.FilterVTableSignature, Experimental.FilterVTableOffset);
-
-            _drawAddress = vtable[5];
-            _manager = (Experimental.PostEffectManager**)scanner.GetStaticAddressFromSig(Experimental.ManagerSignature);
-
-            _drawHook = interop.HookFromAddress<Experimental.DrawFilterDelegate>(_drawAddress, DrawFilter);
-            _renderHook = interop.HookFromAddress<Experimental.RenderViewDelegate>(scanner.ScanText(Experimental.RenderViewSignature), RenderView);
+            _vtable = PostEffectColorFilterDarkBlend.StaticVirtualTablePointer;
+            _drawHook = interop.HookFromAddress<PostEffectColorFilterDarkBlend.Delegates.Draw>(_vtable->Draw, DrawFilter);
+            _renderHook = interop.HookFromAddress<Manager.Delegates.RenderView>(Manager.MemberFunctionPointers.RenderView, RenderView);
 
             _drawHook.Enable();
             _renderHook.Enable();
@@ -100,7 +99,9 @@ internal sealed unsafe class ColorFilter : IDisposable
         }
 
         var (settings, _, _) = _profiles.RenderSettings;
-        if (!enabled || settings is null || (settings.Value.Matrix.IsIdentity && settings.Value.GameFilterId == 0))
+        _pausedEffects = 0;
+        if (!enabled || settings is null || (settings.Value.Matrix.IsIdentity && settings.Value.GameFilterId == 0
+            && settings.Value.Shadows == Vector3.One && settings.Value.Highlights == Vector3.One))
         {
             _status = !enabled ? FilterStatus.PostEffectsDisabled
                 : settings is null ? FilterStatus.Disabled : FilterStatus.Neutral;
@@ -108,27 +109,10 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        var (matrix, gameFilterId, pauses) = settings.Value;
-        _gameFilters.TryGetValue(gameFilterId, out var gameFilter);
-        if (gameFilterId != 0 && gameFilter is null)
-        {
-            _status = "Game filter unavailable";
-            _renderHook!.Original(renderManager, enabled, view);
-            return;
-        }
-
+        var (matrix, shadows, highlights, gameFilterId, pauses, shadowPauses, filterPauses) = settings.Value;
         if (!_client.IsLoggedIn || _conditions[ConditionFlag.BetweenAreas] || _conditions[ConditionFlag.BetweenAreas51])
         {
             _status = FilterStatus.WaitingForGameplay;
-            _renderHook!.Original(renderManager, enabled, view);
-            return;
-        }
-
-        var inGPose = (pauses & (PauseOptions.GPose | PauseOptions.Cutscenes)) != 0 && GameMain.IsInGPose();
-        if (!inGPose && (pauses & PauseOptions.Cutscenes) != 0 &&
-            (_conditions[ConditionFlag.WatchingCutscene] || _conditions[ConditionFlag.WatchingCutscene78] || _conditions[ConditionFlag.OccupiedInCutSceneEvent]))
-        {
-            _status = FilterStatus.Cutscene;
             _renderHook!.Original(renderManager, enabled, view);
             return;
         }
@@ -141,29 +125,48 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        if ((pauses & PauseOptions.Portraits) != 0 && (graphics->PortraitMode || graphics->PortraitPreview))
+        var activePauses = PauseOptions.None;
+        var inGPose = GameMain.IsInGPose();
+        if (inGPose) activePauses |= PauseOptions.GPose;
+        if (!inGPose && (_conditions[ConditionFlag.WatchingCutscene] || _conditions[ConditionFlag.WatchingCutscene78]
+            || _conditions[ConditionFlag.OccupiedInCutSceneEvent])) activePauses |= PauseOptions.Cutscenes;
+        if (graphics->PortraitMode || graphics->PortraitPreview) activePauses |= PauseOptions.Portraits;
+        if (GameMain.IsInIdleCam()) activePauses |= PauseOptions.IdleCamera;
+
+        if ((pauses & activePauses) != 0)
         {
-            _status = FilterStatus.Portrait;
+            matrix = ColorMatrix.Identity;
+            _pausedEffects |= Effect.ColourAdjustments;
+        }
+
+        if ((shadowPauses & activePauses) != 0)
+        {
+            shadows = highlights = Vector3.One;
+            _pausedEffects |= Effect.ShadowHighlight;
+        }
+
+        if ((filterPauses & activePauses) != 0)
+        {
+            gameFilterId = 0;
+            _pausedEffects |= Effect.GPoseFilter;
+        }
+        if (matrix.IsIdentity && shadows == Vector3.One && highlights == Vector3.One && gameFilterId == 0)
+        {
+            _status = "Paused";
             _renderHook!.Original(renderManager, enabled, view);
             return;
         }
 
-        if ((pauses & PauseOptions.GPose) != 0 && inGPose)
+        _gameFilters.TryGetValue(gameFilterId, out var gameFilter);
+        if (gameFilterId != 0 && gameFilter is null)
         {
-            _status = FilterStatus.GPose;
+            _status = "Game filter unavailable";
             _renderHook!.Original(renderManager, enabled, view);
             return;
         }
 
-        if ((pauses & PauseOptions.IdleCamera) != 0 && GameMain.IsInIdleCam())
-        {
-            _status = FilterStatus.IdleCamera;
-            _renderHook!.Original(renderManager, enabled, view);
-            return;
-        }
-
-        var manager = *_manager;
-        var part = Experimental.GetReadyPart(manager, _drawAddress);
+        var manager = PostEffectManager.Instance();
+        var part = Experimental.GetReadyPart(manager, _vtable);
         if (part == null)
         {
             _status = FilterStatus.WaitingForFilter;
@@ -171,18 +174,20 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        if (gameFilter is null && manager->Curve != new Vector4(0, 1, 0, 0))
+        if (gameFilter is null && (Vector4)manager->ColorFilterCurve != new Vector4(0, 1, 0, 0))
         {
             _status = FilterStatus.ColourCurve;
             _renderHook!.Original(renderManager, enabled, view);
             return;
         }
 
-        var nativeFilterEnabled = (manager->Flags & Experimental.PostEffectFlags.ColorFilterDarkBlend) != 0;
+        var nativeFilterEnabled = (manager->Flags & PostEffectFlags.ColorFilterDarkBlend) != 0;
         var combined = gameFilter is null ? matrix : matrix.Multiply(gameFilter.Matrix);
         if (gameFilter is null && nativeFilterEnabled)
         {
-            var filter = manager->Filter;
+            var filter = manager->ColorFilter;
+            var nativeMatrix = new ColorMatrix(filter.Matrix[0], filter.Matrix[1], filter.Matrix[2]);
+            var nativeDarkMatrix = new ColorMatrix(filter.DarkMatrix[0], filter.DarkMatrix[1], filter.DarkMatrix[2]);
             if (filter.DarkParameters.X != 0 || !float.IsFinite(filter.DarkParameters.Y) || filter.DarkParameters.Y < 0
                 || !float.IsFinite(filter.DarkParameters.Z))
             {
@@ -191,7 +196,7 @@ internal sealed unsafe class ColorFilter : IDisposable
                 return;
             }
 
-            if (!filter.Matrix.IsFinite || !filter.DarkMatrix.IsFinite
+            if (!nativeMatrix.IsFinite || !nativeDarkMatrix.IsFinite
                 || !float.IsFinite(filter.Strength) || filter.Strength < 0 || filter.Strength > 1)
             {
                 _status = FilterStatus.SceneOutOfRange;
@@ -199,7 +204,7 @@ internal sealed unsafe class ColorFilter : IDisposable
                 return;
             }
 
-            combined = combined.Multiply(filter.Matrix.WithStrength(filter.Strength));
+            combined = combined.Multiply(nativeMatrix.WithStrength(filter.Strength));
             if (!combined.IsFinite)
             {
                 _status = FilterStatus.CombinedOutOfRange;
@@ -208,17 +213,29 @@ internal sealed unsafe class ColorFilter : IDisposable
             }
         }
 
-        _activeManager = manager;
-        _activePart = part;
-        _matrix = combined;
-        _applied = false;
-        var originalCurve = manager->Curve;
-        if (gameFilter is not null)
+        var splitTint = shadows != Vector3.One || highlights != Vector3.One;
+        var normalMatrix = splitTint ? combined.ScaleRows(highlights) : combined;
+        var darkMatrix = splitTint ? ColorMatrix.ShadowCorrection(shadows, highlights) : ColorMatrix.Identity;
+        if (!normalMatrix.IsFinite || !darkMatrix.IsFinite)
         {
-            manager->Curve = gameFilter.Curve;
+            _status = FilterStatus.CombinedOutOfRange;
+            _renderHook!.Original(renderManager, enabled, view);
+            return;
         }
 
-        manager->Flags |= Experimental.PostEffectFlags.ColorFilterDarkBlend;
+        _activeManager = manager;
+        _activePart = part;
+        _matrix = normalMatrix;
+        _darkMatrix = darkMatrix;
+        _darkParameters = splitTint ? new Vector3(0.5f, 0.5f, 1) : new Vector3(0, 1, 1);
+        _applied = false;
+        var originalCurve = manager->ColorFilterCurve;
+        if (gameFilter is not null)
+        {
+            manager->ColorFilterCurve = gameFilter.Curve;
+        }
+
+        manager->Flags |= PostEffectFlags.ColorFilterDarkBlend;
         try
         {
             _renderHook!.Original(renderManager, enabled, view);
@@ -226,12 +243,12 @@ internal sealed unsafe class ColorFilter : IDisposable
         }
         finally
         {
-            if (*_manager == manager)
+            if (PostEffectManager.Instance() == manager)
             {
-                manager->Curve = originalCurve;
+                manager->ColorFilterCurve = originalCurve;
                 if (!nativeFilterEnabled)
                 {
-                    manager->Flags &= ~Experimental.PostEffectFlags.ColorFilterDarkBlend;
+                    manager->Flags &= ~PostEffectFlags.ColorFilterDarkBlend;
                 }
             }
 
@@ -240,23 +257,28 @@ internal sealed unsafe class ColorFilter : IDisposable
         }
     }
 
-    private void DrawFilter(Experimental.FilterPart* part)
+    private void DrawFilter(PostEffectColorFilterDarkBlend* part)
     {
-        if (!_framework.IsInFrameworkUpdateThread || _activeManager == null || *_manager != _activeManager || part != _activePart)
+        if (!_framework.IsInFrameworkUpdateThread || _activeManager == null || PostEffectManager.Instance() != _activeManager || part != _activePart)
         {
             _drawHook!.Original(part);
             return;
         }
 
         var manager = _activeManager;
-        var original = manager->Filter;
-        manager->Filter = new Experimental.FilterParameters
+        var original = manager->ColorFilter;
+        var filter = new PostEffectManager.ColorFilterParameters
         {
-            Matrix = _matrix,
-            DarkMatrix = ColorMatrix.Identity,
-            DarkParameters = new Vector3(0, 1, 1),
+            DarkParameters = _darkParameters,
             Strength = 1,
         };
+        filter.Matrix[0] = _matrix.Red;
+        filter.Matrix[1] = _matrix.Green;
+        filter.Matrix[2] = _matrix.Blue;
+        filter.DarkMatrix[0] = _darkMatrix.Red;
+        filter.DarkMatrix[1] = _darkMatrix.Green;
+        filter.DarkMatrix[2] = _darkMatrix.Blue;
+        manager->ColorFilter = filter;
         try
         {
             _drawHook!.Original(part);
@@ -264,9 +286,9 @@ internal sealed unsafe class ColorFilter : IDisposable
         }
         finally
         {
-            if (*_manager == manager)
+            if (PostEffectManager.Instance() == manager)
             {
-                manager->Filter = original;
+                manager->ColorFilter = original;
             }
         }
     }

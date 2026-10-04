@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Numerics;
 using Dalamud.Plugin.Services;
 using LiteShade.Configuration;
 using LiteShade.Graphics;
@@ -28,15 +29,24 @@ internal sealed class ProfileService : IDisposable
     private Guid? _overrideProfileId;
     private float _transitionSeconds;
     private ColorMatrix _transitionFrom;
+    private Vector3 _transitionShadows;
+    private Vector3 _transitionHighlights;
     private long _transitionStarted;
     private float _transitionDuration;
     private ProfileContext _context;
     private ProfileSelection _selection;
 
-    private Effects _current = new(new ColorFilter.Settings(ColorMatrix.Identity, 0, PauseOptions.None), null, null);
+    private Effects _current = new(new ColorFilter.Settings(ColorMatrix.Identity, Vector3.One, Vector3.One, 0, PauseOptions.None, PauseOptions.None, PauseOptions.None), null, null);
     private Effects? _preview;
+    private Effect _bypassed;
 
     private bool _disposed;
+
+    public Effect BypassedEffects
+    {
+        get { lock (_sync) return _bypassed; }
+        set { lock (_sync) _bypassed = value; }
+    }
 
     public ProfileContext Context
     {
@@ -82,8 +92,14 @@ internal sealed class ProfileService : IDisposable
                     return (null, null, null);
                 }
 
-                var effects = _preview ?? _current with { Color = _current.Color with { Matrix = CurrentMatrix() } };
-                return (effects.Color, effects.DepthOfField, effects.Vignette);
+                var effects = _preview ?? _current with { Color = CurrentColour() };
+                var colour = effects.Color;
+                if ((_bypassed & Effect.ColourAdjustments) != 0) colour = colour with { Matrix = ColorMatrix.Identity };
+                if ((_bypassed & Effect.ShadowHighlight) != 0) colour = colour with { Shadows = Vector3.One, Highlights = Vector3.One };
+                if ((_bypassed & Effect.GPoseFilter) != 0) colour = colour with { GameFilterId = 0 };
+                return (colour,
+                    (_bypassed & Effect.DepthOfField) != 0 ? null : effects.DepthOfField,
+                    (_bypassed & Effect.Vignette) != 0 ? null : effects.Vignette);
             }
         }
     }
@@ -174,7 +190,11 @@ internal sealed class ProfileService : IDisposable
             : RuleResolver.Resolve(_rules, _profileIds, _defaultId, _context, _automatic);
         if (selection.ProfileId != _selection.ProfileId)
         {
-            _transitionFrom = CurrentMatrix();
+            if (_preview is null) _bypassed = 0;
+            var colour = CurrentColour();
+            _transitionFrom = colour.Matrix;
+            _transitionShadows = colour.Shadows;
+            _transitionHighlights = colour.Highlights;
             _transitionStarted = Stopwatch.GetTimestamp();
             _transitionDuration = transition && _enabled && _context.IsLoggedIn && !_context.IsTransitioning && _preview is null
                 && _current.Color.GameFilterId == _effects[selection.ProfileId].Color.GameFilterId
@@ -189,27 +209,36 @@ internal sealed class ProfileService : IDisposable
         _current = _effects[_selection.ProfileId];
     }
 
-    private ColorMatrix CurrentMatrix()
+    private ColorFilter.Settings CurrentColour()
     {
         if (_transitionDuration <= 0)
         {
-            return _current.Color.Matrix;
+            return _current.Color;
         }
 
         var amount = (float)Stopwatch.GetElapsedTime(_transitionStarted).TotalSeconds / _transitionDuration;
         if (amount >= 1)
         {
             _transitionDuration = 0;
-            return _current.Color.Matrix;
+            return _current.Color;
         }
 
-        return ColorMatrix.Lerp(_transitionFrom, _current.Color.Matrix, amount);
+        return _current.Color with
+        {
+            Matrix = ColorMatrix.Lerp(_transitionFrom, _current.Color.Matrix, amount),
+            Shadows = Vector3.Lerp(_transitionShadows, _current.Color.Shadows, amount),
+            Highlights = Vector3.Lerp(_transitionHighlights, _current.Color.Highlights, amount),
+        };
     }
 
     private Effects GetEffects(ColorProfile profile)
-        => new(new ColorFilter.Settings(ColorMatrix.FromProfile(profile), profile.GameFilterId, _config.ColorPauses),
-            profile.DepthOfField ? new DepthOfField.Settings(profile.Focus, profile.FocusDistance, profile.FNumber, _config.DepthOfFieldPauses) : null,
+        => new(new ColorFilter.Settings(ColorMatrix.FromProfile(profile),
+                ColorMatrix.TintGain(profile.ShadowColor, profile.ShadowStrength),
+                ColorMatrix.TintGain(profile.HighlightColor, profile.HighlightStrength),
+                profile.GameFilterId, _config.GetPauses(Effect.ColourAdjustments),
+                _config.GetPauses(Effect.ShadowHighlight), _config.GetPauses(Effect.GPoseFilter)),
+            profile.DepthOfField ? new DepthOfField.Settings(profile.Focus, profile.FocusDistance, profile.FNumber, _config.GetPauses(Effect.DepthOfField)) : null,
             profile.Vignette && profile.VignetteAmount > 0
-                ? new Vignette.Settings(profile.VignetteAmount, profile.VignetteRadius, profile.VignetteShape, profile.VignetteColor, _config.VignettePauses)
+                ? new Vignette.Settings(profile.VignetteAmount, profile.VignetteRadius, profile.VignetteShape, profile.VignetteColor, _config.GetPauses(Effect.Vignette))
                 : null);
 }

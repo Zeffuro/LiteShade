@@ -1,10 +1,12 @@
 using System;
+using System.Text.Json.Serialization;
 using LiteShade.Configuration;
 
 namespace LiteShade.Profiles;
 
 public sealed class ProfileRule
 {
+    [JsonRequired]
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "New rule";
 

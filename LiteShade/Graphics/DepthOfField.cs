@@ -4,6 +4,7 @@ using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Kernel;
+using FFXIVClientStructs.FFXIV.Client.Graphics.PostEffect;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Render;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Scene;
 using FFXIVClientStructs.FFXIV.Common.Math;
@@ -26,12 +27,8 @@ internal sealed unsafe class DepthOfField : IDisposable
     private readonly ICondition _conditions = ICondition.Get();
     private readonly ITargetManager _targets = ITargetManager.Get();
 
-    // TODO: Swap to FFXIVClientStructs when in main Dalamud.
-    private readonly Hook<Experimental.RenderDelegate>? _hook;
-    private readonly Experimental.PostEffectManager** _manager;
-    private readonly Experimental.PostEffectResources** _resources;
-
-    private readonly nint* _cocVTable;
+    private readonly Hook<Manager.Delegates.Render>? _hook;
+    private readonly PostEffectDepthOfFieldCocLut.PostEffectDepthOfFieldCocLutVirtualTable* _cocVTable;
     private volatile string _status = "Disabled";
     private volatile string _focusDescription = string.Empty;
     private volatile float _focusDistance;
@@ -47,13 +44,9 @@ internal sealed unsafe class DepthOfField : IDisposable
         _profiles = profiles;
         try
         {
-            var scanner = ISigScanner.Get();
-
-            _manager = (Experimental.PostEffectManager**)scanner.GetStaticAddressFromSig(Experimental.ManagerSignature);
-            _resources = (Experimental.PostEffectResources**)scanner.GetStaticAddressFromSig(Experimental.ResourcesSignature);
-            _cocVTable = (nint*)scanner.GetStaticAddressFromSig(Experimental.CocVTableSignature, Experimental.CocVTableOffset);
-            _hook = IGameInteropProvider.Get().HookFromAddress<Experimental.RenderDelegate>(
-                scanner.ScanText(Experimental.RenderSignature), Render);
+            _cocVTable = PostEffectDepthOfFieldCocLut.StaticVirtualTablePointer;
+            _hook = IGameInteropProvider.Get().HookFromAddress<Manager.Delegates.Render>(
+                Manager.MemberFunctionPointers.Render, Render);
             _hook.Enable();
         }
         catch (Exception exception)
@@ -94,9 +87,9 @@ internal sealed unsafe class DepthOfField : IDisposable
             return;
         }
 
-        var manager = *_manager;
-        var coc = Experimental.GetReadyDepthOfField(manager, *_resources, _cocVTable);
-        if (coc == null || !TryGetFocus(dof, Experimental.GetMainCamera(renderManager), out var distance, out var focusDescription)
+        var manager = PostEffectManager.Instance();
+        var coc = Experimental.GetReadyDepthOfField(manager, PostEffectResources.Instance(), _cocVTable);
+        if (coc == null || !TryGetFocus(dof, renderManager->MainCamera, out var distance, out var focusDescription)
             || !float.IsFinite(manager->DepthOfField.CocNormalizationDivisor) || manager->DepthOfField.CocNormalizationDivisor <= 0
             || !float.IsFinite(1f / manager->DepthOfField.CocNormalizationDivisor))
         {
@@ -109,7 +102,7 @@ internal sealed unsafe class DepthOfField : IDisposable
         }
 
         var original = manager->DepthOfField;
-        var nativeEnabled = (manager->Flags & Experimental.PostEffectFlags.DepthOfField) != 0;
+        var nativeEnabled = (manager->Flags & PostEffectFlags.DepthOfField) != 0;
         _focusDescription = focusDescription;
         _focusDistance = distance;
 
@@ -124,7 +117,7 @@ internal sealed unsafe class DepthOfField : IDisposable
         manager->DepthOfField.PreviousFrameWeight = 0;
         manager->DepthOfField.PreviousRangeScale = 0.1f;
 
-        manager->Flags |= Experimental.PostEffectFlags.DepthOfField;
+        manager->Flags |= PostEffectFlags.DepthOfField;
 
         try
         {
@@ -133,12 +126,12 @@ internal sealed unsafe class DepthOfField : IDisposable
         }
         finally
         {
-            if (*_manager == manager)
+            if (PostEffectManager.Instance() == manager)
             {
                 manager->DepthOfField = original;
                 if (!nativeEnabled)
                 {
-                    manager->Flags &= ~Experimental.PostEffectFlags.DepthOfField;
+                    manager->Flags &= ~PostEffectFlags.DepthOfField;
                 }
 
                 coc->ResetHistory = true;
@@ -149,9 +142,9 @@ internal sealed unsafe class DepthOfField : IDisposable
     private bool CanApply(Manager* manager, PauseOptions pauses)
     {
         if (!_client.IsLoggedIn || _conditions[ConditionFlag.BetweenAreas] || _conditions[ConditionFlag.BetweenAreas51]
-            || manager->Is3DRenderingDisabled || ((Experimental.RenderManagerState*)manager)->InitializationFlags != uint.MaxValue
+            || manager->Is3DRenderingDisabled || manager->InitializationFlags != uint.MaxValue
             || (manager->Views[(int)Manager.RenderViews.Main].Flags & 3) != 3
-            || Experimental.GetMainCamera(manager) == null)
+            || manager->MainCamera == null)
         {
             _status = "Waiting for the main scene";
             return false;
@@ -205,7 +198,7 @@ internal sealed unsafe class DepthOfField : IDisposable
 
         if (settings.Focus != FocusMode.Manual)
         {
-            var hasLookAt = (((Experimental.CameraState*)camera)->Flags & 1) != 0;
+            var hasLookAt = (camera->Flags & 1) != 0;
             distance = hasLookAt ? -Vector4.Transform(new Vector4(camera->LookAtVector, 1f), renderCamera->ViewMatrix).Z : 5f;
             if (!float.IsFinite(distance) || distance <= 0)
             {

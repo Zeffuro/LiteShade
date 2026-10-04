@@ -1,25 +1,55 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using LiteShade.Configuration;
 using LiteShade.Profiles;
+using LiteShade.Windows.Components;
 
-namespace LiteShade.Windows;
+namespace LiteShade.Windows.Tabs;
 
-internal sealed partial class ConfigWindow
+internal sealed class ConditionsTab
 {
+    private readonly SystemConfiguration _config;
+    private readonly ProfileService _profiles;
+    private readonly ContextNames _names;
+    private readonly ConditionFields _fields;
+    private readonly ConditionList _list;
+    private readonly ProfilePicker _picker;
+    private readonly Func<Guid> _selectedProfile;
+    private readonly Action _save;
+    private Guid? _editingRuleId;
     private bool _scrollToRule;
 
-    private void DrawConditionEditor()
+    public ConditionsTab(SystemConfiguration config, ProfileService profiles, ContextNames names,
+        ProfilePicker picker, Func<Guid> selectedProfile, Action save)
+    {
+        _config = config;
+        _profiles = profiles;
+        _names = names;
+        _picker = picker;
+        _selectedProfile = selectedProfile;
+        _save = save;
+        _fields = new ConditionFields(profiles, names, save);
+        _list = new ConditionList(config, names, save);
+    }
+
+    public void ResetSelection()
+    {
+        _editingRuleId = null;
+        _fields.Reset();
+        _list.Reset();
+        _scrollToRule = false;
+    }
+
+    public void Draw()
     {
         var automatic = _config.AutomaticProfiles;
         if (ImGui.Checkbox("Switch profiles automatically", ref automatic))
         {
             _config.AutomaticProfiles = automatic;
-            Save();
+            _save();
         }
 
         ImGui.TextDisabled("The first match from the top is used. Otherwise, your default profile is used.");
@@ -48,7 +78,7 @@ internal sealed partial class ConfigWindow
         if (!_config.Rules.Any(rule => rule.Id == _editingRuleId))
         {
             _editingRuleId = _config.Rules[0].Id;
-            _showArea = false;
+            _fields.ShowArea = false;
         }
 
         DrawRuleList();
@@ -80,9 +110,9 @@ internal sealed partial class ConfigWindow
             copy.Enabled = false;
             _config.Rules.Insert(_config.Rules.IndexOf(editing) + 1, copy);
             _editingRuleId = copy.Id;
-            _showArea = false;
+            _fields.ShowArea = false;
             _scrollToRule = true;
-            Save();
+            _save();
             return;
         }
 
@@ -91,9 +121,9 @@ internal sealed partial class ConfigWindow
         {
             _config.Rules.Remove(editing);
             _editingRuleId = _config.Rules.ElementAtOrDefault(Math.Min(index, _config.Rules.Count - 1))?.Id;
-            _showArea = false;
+            _fields.ShowArea = false;
             _scrollToRule = true;
-            Save();
+            _save();
             return;
         }
 
@@ -105,63 +135,15 @@ internal sealed partial class ConfigWindow
 
     private void DrawRuleList()
     {
-        using var table = ImRaii.Table("Rules", 4,
-            ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable,
-            new Vector2(0, ImGui.GetTextLineHeightWithSpacing() * 7));
-        if (!table)
-        {
-            return;
-        }
-
-        ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 40 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("Rule", ImGuiTableColumnFlags.WidthStretch, 2);
-        ImGui.TableSetupColumn("Profile", ImGuiTableColumnFlags.WidthStretch, 1);
-        ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, ImGui.CalcTextSize("Matches (lower priority)").X);
-        ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableHeadersRow();
-
         var context = _profiles.Context;
-        for (var i = 0; i < _config.Rules.Count; i++)
-        {
-            var rule = _config.Rules[i];
-            using var id = ImRaii.PushId(rule.Id.ToString());
-            ImGui.TableNextRow();
-            if (rule.Id == _editingRuleId)
-            {
-                ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.GetColorU32(ImGuiCol.HeaderActive));
-            }
-
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted((i + 1).ToString());
-            ImGui.TableNextColumn();
-            using var selectedColour = ImRaii.PushColor(ImGuiCol.Header, ImGui.GetStyle().Colors[(int)ImGuiCol.HeaderActive]);
-            if (ImGui.Selectable(rule.Name + "###Rule", rule.Id == _editingRuleId, ImGuiSelectableFlags.SpanAllColumns))
-            {
-                _editingRuleId = rule.Id;
-                _showArea = false;
-            }
-
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip(RuleSummary(rule));
-            }
-
-            if (_scrollToRule && rule.Id == _editingRuleId)
-            {
-                ImGui.SetScrollHereY();
-                _scrollToRule = false;
-            }
-
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted(_config.Profiles.FirstOrDefault(profile => profile.Id == rule.ProfileId)?.Name ?? "Missing profile");
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted(RuleListStatus(rule, context));
-        }
+        var active = _config.Rules.FirstOrDefault(rule => rule.Id == _profiles.Selection.RuleId)?.Name;
+        _list.Draw(ref _editingRuleId, ref _scrollToRule, () => _fields.ShowArea = false, RuleSummary,
+            (rule, exists) => RuleListStatus(rule, context, exists), active);
     }
 
-    private string RuleListStatus(ProfileRule rule, ProfileContext context)
+    private string RuleListStatus(ProfileRule rule, ProfileContext context, bool profileExists)
     {
-        if (!rule.Enabled || !rule.IsValid || _config.Profiles.All(profile => profile.Id != rule.ProfileId))
+        if (!rule.Enabled || !rule.IsValid || !profileExists)
         {
             return "Disabled";
         }
@@ -176,7 +158,7 @@ internal sealed partial class ConfigWindow
             return "Matches";
         }
 
-        return _profiles.Selection.RuleId == rule.Id ? "Active" : "Matches (lower priority)";
+        return _profiles.Selection.RuleId == rule.Id ? "Active" : "Lower priority";
     }
 
     private void AddRule(bool useCurrent)
@@ -190,7 +172,7 @@ internal sealed partial class ConfigWindow
         var rule = new ProfileRule
         {
             Name = useCurrent ? _names.Territory(context.TerritoryId) : $"Rule {_config.Rules.Count + 1}",
-            ProfileId = _editingProfileId,
+            ProfileId = _selectedProfile(),
             TerritoryId = useCurrent ? context.TerritoryId : null,
             WeatherId = useCurrent ? context.WeatherId : null,
             Enabled = false,
@@ -200,18 +182,19 @@ internal sealed partial class ConfigWindow
             rule.ProfileId = _config.DefaultProfileId;
         }
 
+        _list.Reset();
         _config.Rules.Add(rule);
         _editingRuleId = rule.Id;
-        _showArea = false;
+        _fields.ShowArea = false;
         _scrollToRule = true;
-        Save();
+        _save();
     }
 
     private void MoveRule(int from, int to)
     {
         (_config.Rules[from], _config.Rules[to]) = (_config.Rules[to], _config.Rules[from]);
         _scrollToRule = true;
-        Save();
+        _save();
     }
 
     private void DrawRule(ProfileRule rule)
@@ -221,7 +204,7 @@ internal sealed partial class ConfigWindow
         if (ImGui.Checkbox("Enabled", ref enabled))
         {
             rule.Enabled = enabled;
-            Save();
+            _save();
         }
 
         ImGui.SameLine();
@@ -234,20 +217,20 @@ internal sealed partial class ConfigWindow
 
         if (ImGui.IsItemDeactivatedAfterEdit())
         {
-            Save();
+            _save();
         }
 
         var profile = rule.ProfileId;
-        if (ProfileCombo("Use profile", ref profile))
+        if (_picker.Draw("Use profile", ref profile))
         {
             rule.ProfileId = profile;
-            Save();
+            _save();
         }
 
         ImGui.Spacing();
         ImGui.TextUnformatted("When all of these match:");
-        DrawLocationConditions(rule);
-        DrawExtraConditions(rule);
+        _fields.DrawLocation(rule);
+        _fields.DrawExtra(rule);
         ImGui.Spacing();
         ImGui.TextDisabled(RuleStatus(rule));
     }
@@ -260,7 +243,7 @@ internal sealed partial class ConfigWindow
         if (rule.WeatherId is { } weather) parts.Add(_names.Weather(weather));
         if (rule.StartTime is { } start && rule.EndTime is { } end)
         {
-            parts.Add(start == end ? "All day (ET)" : $"{FormatEtTime(start)}–{FormatEtTime(end)} ET");
+            parts.Add(start == end ? "All day (ET)" : $"{ConditionFields.FormatEtTime(start)}–{ConditionFields.FormatEtTime(end)} ET");
         }
 
         if (rule.Activity != RuleActivity.Any) parts.Add(rule.Activity == RuleActivity.Duty ? "In duty" : "Outside duty");
@@ -293,7 +276,7 @@ internal sealed partial class ConfigWindow
         {
             var reason = condition switch
             {
-                RuleCondition.Time => context.DayTimeSeconds is { } seconds ? $"time is {FormatEtTime((int)(seconds / 60))} ET" : "time is unavailable",
+                RuleCondition.Time => context.DayTimeSeconds is { } seconds ? $"time is {ConditionFields.FormatEtTime((int)(seconds / 60))} ET" : "time is unavailable",
                 RuleCondition.Zone => $"zone is {_names.Territory(context.TerritoryId)}",
                 RuleCondition.Area => context.AreaId is { } area ? $"area is {_names.Area(area)}" : "area is unavailable",
                 RuleCondition.Weather => context.WeatherId is { } weather ? $"weather is {_names.Weather(weather)}" : "weather is unavailable",

@@ -5,21 +5,39 @@ using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using LiteShade.Profiles;
 
-namespace LiteShade.Windows;
+namespace LiteShade.Windows.Components;
 
-internal sealed partial class ConfigWindow
+internal sealed class ConditionFields
 {
     private static readonly string[] DutyChoices = ["Any", "Outside duty", "In duty"];
     private static readonly string[] StateChoices = ["Any", "Yes", "No"];
 
+    private readonly ProfileService _profiles;
+    private readonly ContextNames _names;
+    private readonly Action _save;
     private string _conditionSearch = string.Empty;
-    private bool _showArea;
     private Guid? _timeRuleId;
     private Guid? _invalidTimeRuleId;
     private string _startTimeText = string.Empty;
     private string _endTimeText = string.Empty;
 
-    private void DrawLocationConditions(ProfileRule rule)
+    public bool ShowArea { get; set; }
+
+    public ConditionFields(ProfileService profiles, ContextNames names, Action save)
+    {
+        _profiles = profiles;
+        _names = names;
+        _save = save;
+    }
+
+    public void Reset()
+    {
+        ShowArea = false;
+        _conditionSearch = string.Empty;
+        _timeRuleId = _invalidTimeRuleId = null;
+    }
+
+    public void DrawLocation(ProfileRule rule)
     {
         var context = _profiles.Context;
         var currentAvailable = context is { IsLoggedIn: true, IsTransitioning: false };
@@ -28,46 +46,46 @@ internal sealed partial class ConfigWindow
         {
             rule.TerritoryId = zone;
             rule.AreaId = null;
-            _showArea = false;
-            Save();
+            ShowArea = false;
+            _save();
         }
 
         if (rule.TerritoryId.HasValue && DrawRemoveButton("Zone"))
         {
             rule.TerritoryId = null;
             rule.AreaId = null;
-            _showArea = false;
-            Save();
+            ShowArea = false;
+            _save();
         }
 
         uint? weather = rule.WeatherId;
         if (LocationCombo("Weather", ref weather, _names.Weathers, currentAvailable ? context.WeatherId : null))
         {
             rule.WeatherId = weather.HasValue ? (byte)weather.Value : null;
-            Save();
+            _save();
         }
 
         if (rule.WeatherId.HasValue && DrawRemoveButton("Weather"))
         {
             rule.WeatherId = null;
-            Save();
+            _save();
         }
 
-        if (rule.AreaId.HasValue || _showArea)
+        if (rule.AreaId.HasValue || ShowArea)
         {
             var area = rule.AreaId;
             if (LocationCombo("Area", ref area, _names.Areas, currentAvailable ? context.AreaId : null))
             {
                 rule.AreaId = area;
-                _showArea = area.HasValue;
-                Save();
+                ShowArea = area.HasValue;
+                _save();
             }
 
-            if ((rule.AreaId.HasValue || _showArea) && DrawRemoveButton("Area"))
+            if ((rule.AreaId.HasValue || ShowArea) && DrawRemoveButton("Area"))
             {
                 rule.AreaId = null;
-                _showArea = false;
-                Save();
+                ShowArea = false;
+                _save();
             }
         }
     }
@@ -126,7 +144,7 @@ internal sealed partial class ConfigWindow
         return false;
     }
 
-    private void DrawExtraConditions(ProfileRule rule)
+    public void DrawExtra(ProfileRule rule)
     {
         DrawDutyCondition(rule);
         DrawStateCondition("Combat", rule.InCombat, value => rule.InCombat = value);
@@ -150,15 +168,15 @@ internal sealed partial class ConfigWindow
             return;
         }
 
-        if (!rule.AreaId.HasValue && !_showArea && ImGui.Selectable("Area"))
+        if (!rule.AreaId.HasValue && !ShowArea && ImGui.Selectable("Area"))
         {
-            _showArea = true;
+            ShowArea = true;
         }
 
         if (rule.Activity == RuleActivity.Any && ImGui.Selectable("Duty"))
         {
             rule.Activity = RuleActivity.Duty;
-            Save();
+            _save();
         }
 
         AddState("Combat", rule.InCombat, () => rule.InCombat = true);
@@ -175,7 +193,7 @@ internal sealed partial class ConfigWindow
             rule.StartTime = 6 * 60;
             rule.EndTime = 18 * 60;
             _timeRuleId = null;
-            Save();
+            _save();
         }
     }
 
@@ -190,13 +208,13 @@ internal sealed partial class ConfigWindow
         if (ImGui.Combo("Duty", ref activity, DutyChoices, DutyChoices.Length))
         {
             rule.Activity = (RuleActivity)activity;
-            Save();
+            _save();
         }
 
         if (rule.Activity != RuleActivity.Any && DrawRemoveButton("Duty"))
         {
             rule.Activity = RuleActivity.Any;
-            Save();
+            _save();
         }
     }
 
@@ -211,13 +229,13 @@ internal sealed partial class ConfigWindow
         if (ImGui.Combo(label, ref selected, StateChoices, StateChoices.Length))
         {
             set(selected == 0 ? null : selected == 1);
-            Save();
+            _save();
         }
 
         if (selected != 0 && DrawRemoveButton(label))
         {
             set(null);
-            Save();
+            _save();
         }
     }
 
@@ -254,7 +272,7 @@ internal sealed partial class ConfigWindow
             rule.StartTime = start;
             rule.EndTime = end;
             _invalidTimeRuleId = null;
-            Save();
+            _save();
         }
         else if (changed)
         {
@@ -272,7 +290,7 @@ internal sealed partial class ConfigWindow
             rule.EndTime = null;
             _timeRuleId = null;
             _invalidTimeRuleId = null;
-            Save();
+            _save();
         }
     }
 
@@ -296,7 +314,7 @@ internal sealed partial class ConfigWindow
         return true;
     }
 
-    private static string FormatEtTime(int minutes) => $"{minutes / 60:00}:{minutes % 60:00}";
+    public static string FormatEtTime(int minutes) => $"{minutes / 60:00}:{minutes % 60:00}";
 
     private bool DrawRemoveButton(string label)
     {
@@ -318,6 +336,6 @@ internal sealed partial class ConfigWindow
         }
 
         add();
-        Save();
+        _save();
     }
 }

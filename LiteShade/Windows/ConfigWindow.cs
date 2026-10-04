@@ -1,4 +1,3 @@
-using System;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -12,28 +11,33 @@ using LiteShade.Configuration.Persistence;
 using LiteShade.Graphics;
 using LiteShade.Integrations;
 using LiteShade.Profiles;
+using LiteShade.Windows.Tabs;
 
 namespace LiteShade.Windows;
 
-internal sealed partial class ConfigWindow : Window
+internal sealed class ConfigWindow : Window
 {
     private readonly SystemConfiguration _config;
     private readonly ProfileService _profiles;
-    private readonly ColorFilter _filter;
     private readonly ContextNames _names = new();
-    private bool _reShadeLoaded;
-    private Guid _editingProfileId;
-    private Guid? _editingRuleId;
-    private bool _editorPreview;
-    private bool _editorShowOriginal;
-    private bool _editorPreviewDirty;
+    private readonly ProfilesTab _profilesTab;
+    private readonly ConditionsTab _conditionsTab;
+    private readonly OptionsTab _optionsTab;
+#if DEBUG
+    private readonly DiagnosticsTab _diagnosticsTab;
+#endif
+    private readonly bool _reShadeLoaded;
 
     public ConfigWindow(SystemConfiguration config, ProfileService profiles, ColorFilter filter) : base("LiteShade")
     {
         _config = config;
         _profiles = profiles;
-        _filter = filter;
-        _editingProfileId = config.DefaultProfileId;
+        _profilesTab = new ProfilesTab(config, profiles, filter, ResetConditions);
+        _conditionsTab = new ConditionsTab(config, profiles, _names, _profilesTab.Picker, () => _profilesTab.SelectedProfileId, Save);
+        _optionsTab = new OptionsTab(config, profiles, Save);
+#if DEBUG
+        _diagnosticsTab = new DiagnosticsTab(profiles, filter, _names);
+#endif
         _reShadeLoaded = ReShadeDetector.IsLoaded();
         SizeConstraints = new WindowSizeConstraints
         {
@@ -44,6 +48,7 @@ internal sealed partial class ConfigWindow : Window
 
     public override void Draw()
     {
+        _profilesTab.DrawDialogs();
         var enabled = _config.Enabled;
         if (ImGui.Checkbox("Enable", ref enabled))
         {
@@ -60,7 +65,12 @@ internal sealed partial class ConfigWindow : Window
             }
         }
 
-        if (_reShadeLoaded)
+#if DEBUG
+        var reShadeLoaded = _diagnosticsTab.ReShadeLoaded;
+#else
+        var reShadeLoaded = _reShadeLoaded;
+#endif
+        if (reShadeLoaded)
         {
             ImGui.SameLine();
             using (ImRaii.PushFont(UiBuilder.IconFont))
@@ -73,14 +83,15 @@ internal sealed partial class ConfigWindow : Window
             }
         }
 
+        _profilesTab.DrawPresets();
         ImGui.Separator();
         var selection = _profiles.Selection;
         var selected = _config.Profiles.FirstOrDefault(profile => profile.Id == selection.ProfileId);
-        var editing = _config.Profiles.FirstOrDefault(profile => profile.Id == _editingProfileId);
-        ImGui.TextUnformatted(_editorPreview
-            ? _editorShowOriginal ? "Previewing: original" : $"Previewing: {editing?.Name ?? "None"}"
+        var editing = _config.Profiles.FirstOrDefault(profile => profile.Id == _profilesTab.SelectedProfileId);
+        ImGui.TextUnformatted(_profilesTab.HasPresetPreview ? "Trying a preset" : _profilesTab.IsPreviewing
+            ? _profilesTab.ShowingOriginal ? "Previewing: original" : $"Previewing: {editing?.Name ?? "None"}"
             : $"Active profile: {selected?.Name ?? "None"}");
-        if (!_editorPreview)
+        if (!_profilesTab.IsPreviewing && !_profilesTab.HasPresetPreview)
         {
             var rule = _config.Rules.FirstOrDefault(item => item.Id == selection.RuleId);
             ImGui.SameLine();
@@ -95,7 +106,7 @@ internal sealed partial class ConfigWindow : Window
             }
         }
 
-        if (_editingProfileId != selection.ProfileId)
+        if (_profilesTab.SelectedProfileId != selection.ProfileId)
         {
             ImGui.TextDisabled($"Editing profile: {editing?.Name ?? "None"}");
         }
@@ -109,7 +120,7 @@ internal sealed partial class ConfigWindow : Window
         {
             if (tab)
             {
-                DrawProfiles();
+                _profilesTab.Draw();
             }
         }
 
@@ -117,7 +128,7 @@ internal sealed partial class ConfigWindow : Window
         {
             if (tab)
             {
-                DrawConditionEditor();
+                _conditionsTab.Draw();
             }
         }
 
@@ -125,7 +136,7 @@ internal sealed partial class ConfigWindow : Window
         {
             if (tab)
             {
-                DrawOptions();
+                _optionsTab.Draw();
             }
         }
 
@@ -134,66 +145,25 @@ internal sealed partial class ConfigWindow : Window
         {
             if (tab)
             {
-                DrawDiagnostics();
+                _diagnosticsTab.Draw();
             }
         }
 #endif
-        if (_editorPreviewDirty)
-        {
-            PublishEditorPreview(_config.Profiles.First(profile => profile.Id == _editingProfileId));
-        }
+        _profilesTab.RefreshPreview();
     }
 
-    private void Save()
+    private void Save() => _profilesTab.Save();
+
+    private void ResetConditions() => _conditionsTab.ResetSelection();
+
+    public void StopPreview() => _profilesTab.StopPreview();
+
+    public void StopPresetPreview() => _profilesTab.StopPresetPreview();
+
+    public override void OnClose()
     {
-        ConfigRepository.Save(_config);
-        _profiles.Refresh();
-        MarkPreviewDirty();
-    }
-
-    public void StopPreview()
-    {
-        if (!_editorPreview)
-        {
-            return;
-        }
-
-        _editorPreview = false;
-        _editorShowOriginal = false;
-        _editorPreviewDirty = false;
-        _profiles.SetPreview(null);
-    }
-
-    public override void OnClose() => StopPreview();
-
-    private void MarkPreviewDirty()
-    {
-        if (_editorPreview)
-        {
-            _editorPreviewDirty = true;
-        }
-    }
-
-    private bool ProfileCombo(string label, ref Guid selected)
-    {
-        var selectedId = selected;
-        var current = _config.Profiles.FirstOrDefault(profile => profile.Id == selectedId);
-        using var combo = ImRaii.Combo(label, current?.Name ?? "Missing profile");
-        if (!combo)
-        {
-            return false;
-        }
-
-        foreach (var profile in _config.Profiles)
-        {
-            using var id = ImRaii.PushId(profile.Id.ToString());
-            if (ImGui.Selectable(profile.Name, profile.Id == selected))
-            {
-                selected = profile.Id;
-                return true;
-            }
-        }
-
-        return false;
+        _profilesTab.CloseDialogs();
+        StopPreview();
+        StopPresetPreview();
     }
 }

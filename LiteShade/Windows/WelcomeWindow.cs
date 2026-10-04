@@ -38,6 +38,7 @@ internal sealed class WelcomeWindow : Window
     public void Show()
     {
         PluginState.ConfigWindow.StopPreview();
+        PluginState.ConfigWindow.StopPresetPreview();
         _selectedPreset = -1;
         _preview = null;
         _showOriginal = false;
@@ -151,11 +152,7 @@ internal sealed class WelcomeWindow : Window
         }
 
         var profile = _config.Profiles[0];
-        return profile.Name == "Neutral" && profile.Strength == 1f && profile.Tint == 0f && profile.Warmth == 0f
-            && profile.Saturation == 1f && profile.Contrast == 1f && profile.Exposure == 0f && profile.GameFilterId == 0
-            && !profile.Vignette && profile.VignetteAmount == 0.35f && profile.VignetteRadius == 0.6f
-            && profile.VignetteShape == 0.5f && profile.VignetteColor == 0xFF000000 && !profile.DepthOfField
-            && profile.Focus == FocusMode.Target && profile.FocusDistance == 5f && profile.FNumber == 4f;
+        return profile == (ColorProfile.CreateNeutral() with { Id = profile.Id });
     }
 
     private void Skip()

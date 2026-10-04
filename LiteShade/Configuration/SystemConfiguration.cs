@@ -15,18 +15,27 @@ public sealed class SystemConfiguration : IPluginConfiguration
     public bool Enabled { get; set; }
     public bool HasSeenWelcome { get; set; }
     public bool AutomaticProfiles { get; set; }
-    public PauseOptions ColorPauses { get; set; }
-    public PauseOptions DepthOfFieldPauses { get; set; }
-    public PauseOptions VignettePauses { get; set; }
+    public Dictionary<Effect, PauseOptions> EffectPauses { get; set; } = [];
     public float TransitionSeconds { get; set; } = 0.35f;
     public Guid DefaultProfileId { get; set; }
     public List<ColorProfile> Profiles { get; set; } = [];
     public List<ProfileRule> Rules { get; set; } = [];
+    public HashSet<uint> FavoriteGameFilters { get; set; } = [];
+    public HashSet<Guid> FavoriteProfiles { get; set; } = [];
+    public ProfilePack Pack { get; set; } = new();
+    public List<InstalledPack> InstalledPacks { get; set; } = [];
 
     public void EnsureInitialized()
     {
         Profiles ??= [];
         Rules ??= [];
+        FavoriteGameFilters ??= [];
+        FavoriteProfiles ??= [];
+        EffectPauses ??= [];
+        Pack ??= new();
+        Pack.Normalize();
+        InstalledPacks ??= [];
+        FavoriteGameFilters.Remove(0);
         Profiles.RemoveAll(profile => profile is null);
         Rules.RemoveAll(rule => rule is null);
 
@@ -52,6 +61,8 @@ public sealed class SystemConfiguration : IPluginConfiguration
             DefaultProfileId = Profiles[0].Id;
         }
 
+        FavoriteProfiles.IntersectWith(ids);
+
         var ruleIds = new HashSet<Guid>();
         foreach (var rule in Rules)
         {
@@ -62,6 +73,20 @@ public sealed class SystemConfiguration : IPluginConfiguration
             }
 
             rule.Normalize();
+        }
+
+        var packIds = new HashSet<Guid>();
+        InstalledPacks.RemoveAll(pack => pack is null || pack.Pack is null || pack.Pack.Id == Guid.Empty
+            || !packIds.Add(pack.Pack.Id));
+        foreach (var pack in InstalledPacks)
+        {
+            pack.Pack.Normalize();
+            pack.ProfileIds ??= [];
+            pack.RuleIds ??= [];
+            pack.ProfileIds = pack.ProfileIds.Where(pair => pair.Key != Guid.Empty && ids.Contains(pair.Value))
+                .ToDictionary();
+            pack.RuleIds = pack.RuleIds.Where(pair => pair.Key != Guid.Empty && ruleIds.Contains(pair.Value))
+                .ToDictionary();
         }
 
         TransitionSeconds = float.IsFinite(TransitionSeconds) ? Math.Clamp(TransitionSeconds, 0f, 3f) : 0.35f;
@@ -76,12 +101,16 @@ public sealed class SystemConfiguration : IPluginConfiguration
         Enabled = false;
         HasSeenWelcome = false;
         AutomaticProfiles = false;
-        ColorPauses = PauseOptions.None;
-        DepthOfFieldPauses = PauseOptions.None;
-        VignettePauses = PauseOptions.None;
+        EffectPauses = [];
         TransitionSeconds = 0.35f;
         Profiles = [ColorProfile.CreateNeutral()];
         Rules = [];
+        FavoriteGameFilters = [];
+        FavoriteProfiles = [];
+        Pack = new();
+        InstalledPacks = [];
         DefaultProfileId = Profiles[0].Id;
     }
+
+    public PauseOptions GetPauses(Effect effect) => EffectPauses.GetValueOrDefault(effect);
 }
