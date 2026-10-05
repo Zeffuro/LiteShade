@@ -8,6 +8,20 @@ namespace LiteShade.Graphics;
 
 internal static unsafe class Experimental
 {
+    public const string TextureMapSignature = "E8 ?? ?? ?? ?? 4C 8B D8 48 39 7D";
+    public const string TextureUnmapSignature = "E8 ?? ?? ?? ?? 0F B6 5C 24 ?? EB";
+
+    public delegate void* TextureMapDelegate(Texture* texture, uint mipLevel, TextureMapResult* result);
+    public delegate void TextureUnmapDelegate(Texture* texture, uint mipLevel);
+
+    [StructLayout(LayoutKind.Explicit, Size = 0x10)]
+    public struct TextureMapResult
+    {
+        [FieldOffset(0x00)] public uint RowPitch;
+        [FieldOffset(0x04)] private uint Unk04;
+        [FieldOffset(0x08)] public void* Data;
+    }
+
     public static PostEffectColorFilterDarkBlend* GetReadyPart(PostEffectManager* manager,
         PostEffectColorFilterDarkBlend.PostEffectColorFilterDarkBlendVirtualTable* vtable)
     {

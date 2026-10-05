@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using LiteShade.Configuration;
@@ -97,9 +98,7 @@ internal sealed class OptionsTab
         }
 
         ImGui.SameLine();
-        bool reset;
-        using (ImRaii.PushFont(UiBuilder.IconFont))
-            reset = ImGui.Button($"{FontAwesomeIcon.Undo.ToIconString()}##Reset transition", new Vector2(resetSize));
+        var reset = ImGuiComponents.IconButton("Reset transition", FontAwesomeIcon.Undo, new Vector2(resetSize / ImGuiHelpers.GlobalScale));
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Reset");
         if (reset)
         {

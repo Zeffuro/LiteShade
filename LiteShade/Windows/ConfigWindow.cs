@@ -48,6 +48,7 @@ internal sealed class ConfigWindow : Window
 
     public override void Draw()
     {
+        _profilesTab.FlushEdits();
         _profilesTab.DrawDialogs();
         var enabled = _config.Enabled;
         if (ImGui.Checkbox("Enable", ref enabled))

@@ -371,7 +371,13 @@ internal sealed class ProfilesTab
 
     public void DrawDialogs() => _sharing.DrawDialogs();
 
-    public void CloseDialogs() => _sharing.CloseDialogs();
+    public void FlushEdits() => _effects.FlushEdits();
+
+    public void CloseDialogs()
+    {
+        _effects.FlushEdits(true);
+        _sharing.CloseDialogs();
+    }
 
     public void OpenCopyEffects(ColorProfile profile) => _copy.Open(profile);
 

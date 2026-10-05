@@ -17,10 +17,6 @@ internal sealed unsafe class Vignette : IDisposable
 
     private readonly ProfileService _profiles;
 
-    private readonly IFramework _framework = IFramework.Get();
-    private readonly IClientState _client = IClientState.Get();
-    private readonly ICondition _conditions = ICondition.Get();
-
     private readonly Hook<Manager.Delegates.RenderView>? _hook;
 
     private volatile string _status = "Disabled";
@@ -48,7 +44,7 @@ internal sealed unsafe class Vignette : IDisposable
 
     private void RenderView(Manager* renderManager, bool enabled, Manager.RenderViews view)
     {
-        if (view != Manager.RenderViews.Main || !_framework.IsInFrameworkUpdateThread)
+        if (view != Manager.RenderViews.Main || !IFramework.Get().IsInFrameworkUpdateThread)
         {
             _hook!.Original(renderManager, enabled, view);
             return;
@@ -109,7 +105,8 @@ internal sealed unsafe class Vignette : IDisposable
 
     private bool CanApply(PauseOptions pauses)
     {
-        if (!_client.IsLoggedIn || _conditions[ConditionFlag.BetweenAreas] || _conditions[ConditionFlag.BetweenAreas51])
+        var conditions = ICondition.Get();
+        if (!IClientState.Get().IsLoggedIn || conditions[ConditionFlag.BetweenAreas] || conditions[ConditionFlag.BetweenAreas51])
         {
             _status = FilterStatus.WaitingForGameplay;
             return false;
@@ -122,7 +119,7 @@ internal sealed unsafe class Vignette : IDisposable
             return false;
         }
 
-        if ((pauses & EffectPauseState.GetActive(graphics, _conditions)) != 0)
+        if ((pauses & EffectPauseState.GetActive(graphics, conditions)) != 0)
         {
             _status = "Paused";
             return false;

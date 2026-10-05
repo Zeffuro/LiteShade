@@ -16,7 +16,6 @@ internal sealed class ProfileService : IDisposable
 
     private readonly object _sync = new();
     private readonly SystemConfiguration _config;
-    private readonly IFramework _framework = IFramework.Get();
 
     private Dictionary<Guid, Effects> _effects = [];
     private HashSet<Guid> _profileIds = [];
@@ -30,6 +29,8 @@ internal sealed class ProfileService : IDisposable
     private float _transitionSeconds;
     private ColorMatrix _transitionFrom;
     private float _transitionMidtones;
+    private ColorCurve _transitionCurve = ColorCurve.Identity;
+    private float _transitionCurveStrength;
     private Vector3 _transitionMidtoneTint;
     private Vector3 _transitionShadows;
     private Vector3 _transitionHighlights;
@@ -39,7 +40,7 @@ internal sealed class ProfileService : IDisposable
     private ProfileContext _context;
     private ProfileSelection _selection;
 
-    private Effects _current = new(new ColorFilter.Settings(ColorMatrix.Identity, 0, Vector3.Zero, Vector3.One, Vector3.One, new Vector2(0.5f), 0, PauseOptions.None, PauseOptions.None, PauseOptions.None), null, null);
+    private Effects _current = new(new ColorFilter.Settings(ColorMatrix.Identity, 0, ColorCurve.Identity, 0, Vector3.Zero, Vector3.One, Vector3.One, new Vector2(0.5f), 0, PauseOptions.None, PauseOptions.None, PauseOptions.None), null, null);
     private Effects? _preview;
     private Effect _bypassed;
 
@@ -102,7 +103,7 @@ internal sealed class ProfileService : IDisposable
 
                 var effects = _preview ?? _current with { Color = CurrentColour() };
                 var colour = effects.Color;
-                if ((_bypassed & Effect.ColourAdjustments) != 0) colour = colour with { Matrix = ColorMatrix.Identity, Midtones = 0 };
+                if ((_bypassed & Effect.ColourAdjustments) != 0) colour = colour with { Matrix = ColorMatrix.Identity, Midtones = 0, CurveStrength = 0 };
                 if ((_bypassed & Effect.ShadowHighlight) != 0) colour = colour with { MidtoneTint = Vector3.Zero, Shadows = Vector3.One, Highlights = Vector3.One };
                 if ((_bypassed & Effect.GPoseFilter) != 0) colour = colour with { GameFilterId = 0 };
                 return (colour,
@@ -116,7 +117,7 @@ internal sealed class ProfileService : IDisposable
     {
         _config = config;
         Refresh();
-        _framework.Update += OnFrameworkUpdate;
+        IFramework.Get().Update += OnFrameworkUpdate;
     }
 
     public void Refresh()
@@ -166,7 +167,7 @@ internal sealed class ProfileService : IDisposable
 
     public void Dispose()
     {
-        _framework.Update -= OnFrameworkUpdate;
+        IFramework.Get().Update -= OnFrameworkUpdate;
         lock (_sync)
         {
             _disposed = true;
@@ -202,6 +203,8 @@ internal sealed class ProfileService : IDisposable
             var colour = CurrentColour();
             _transitionFrom = colour.Matrix;
             _transitionMidtones = colour.Midtones;
+            _transitionCurve = colour.CurveFrom is { } from ? ColorCurve.Lerp(from, colour.Curve, colour.CurveBlend) : colour.Curve;
+            _transitionCurveStrength = colour.CurveStrength;
             _transitionMidtoneTint = colour.MidtoneTint;
             _transitionShadows = colour.Shadows;
             _transitionHighlights = colour.Highlights;
@@ -238,6 +241,9 @@ internal sealed class ProfileService : IDisposable
         {
             Matrix = ColorMatrix.Lerp(_transitionFrom, _current.Color.Matrix, amount),
             Midtones = float.Lerp(_transitionMidtones, _current.Color.Midtones, amount),
+            CurveFrom = _transitionCurve,
+            CurveBlend = amount,
+            CurveStrength = float.Lerp(_transitionCurveStrength, _current.Color.CurveStrength, amount),
             MidtoneTint = Vector3.Lerp(_transitionMidtoneTint, _current.Color.MidtoneTint, amount),
             Shadows = Vector3.Lerp(_transitionShadows, _current.Color.Shadows, amount),
             Highlights = Vector3.Lerp(_transitionHighlights, _current.Color.Highlights, amount),
@@ -246,7 +252,11 @@ internal sealed class ProfileService : IDisposable
     }
 
     private Effects GetEffects(ColorProfile profile)
-        => new(new ColorFilter.Settings(ColorMatrix.FromProfile(profile), profile.Midtones * profile.Strength,
+    {
+        var curve = profile.Curve.IsIdentity ? ColorCurve.Identity
+            : _effects.TryGetValue(profile.Id, out var previous) && previous.Color.Curve.Source == profile.Curve
+                ? previous.Color.Curve : new ColorCurve(profile.Curve);
+        return new(new ColorFilter.Settings(ColorMatrix.FromProfile(profile), profile.Midtones * profile.Strength, curve, profile.Strength,
                 ColorMatrix.MidtoneTint(profile.MidtoneColor, profile.MidtoneStrength),
                 ColorMatrix.TintGain(profile.ShadowColor, profile.ShadowStrength) * MathF.Pow(2f, profile.ShadowExposure * 0.5f),
                 ColorMatrix.TintGain(profile.HighlightColor, profile.HighlightStrength) * MathF.Pow(2f, profile.HighlightExposure * 0.5f),
@@ -257,4 +267,5 @@ internal sealed class ProfileService : IDisposable
             profile.Vignette && profile.VignetteAmount > 0
                 ? new Vignette.Settings(profile.VignetteAmount, profile.VignetteRadius, profile.VignetteShape, profile.VignetteColor, _config.GetPauses(Effect.Vignette))
                 : null);
+    }
 }

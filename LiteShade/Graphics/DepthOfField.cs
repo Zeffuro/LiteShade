@@ -22,11 +22,6 @@ internal sealed unsafe class DepthOfField : IDisposable
 
     private readonly ProfileService _profiles;
 
-    private readonly IFramework _framework = IFramework.Get();
-    private readonly IClientState _client = IClientState.Get();
-    private readonly ICondition _conditions = ICondition.Get();
-    private readonly ITargetManager _targets = ITargetManager.Get();
-
     private readonly Hook<Manager.Delegates.Render>? _hook;
     private readonly PostEffectDepthOfFieldCocLut.PostEffectDepthOfFieldCocLutVirtualTable* _cocVTable;
     private volatile string _status = "Disabled";
@@ -61,7 +56,7 @@ internal sealed unsafe class DepthOfField : IDisposable
 
     private void Render(Manager* renderManager)
     {
-        if (!_framework.IsInFrameworkUpdateThread)
+        if (!IFramework.Get().IsInFrameworkUpdateThread)
         {
             _hook!.Original(renderManager);
             return;
@@ -141,7 +136,8 @@ internal sealed unsafe class DepthOfField : IDisposable
 
     private bool CanApply(Manager* manager, PauseOptions pauses)
     {
-        if (!_client.IsLoggedIn || _conditions[ConditionFlag.BetweenAreas] || _conditions[ConditionFlag.BetweenAreas51]
+        var conditions = ICondition.Get();
+        if (!IClientState.Get().IsLoggedIn || conditions[ConditionFlag.BetweenAreas] || conditions[ConditionFlag.BetweenAreas51]
             || manager->Is3DRenderingDisabled || manager->InitializationFlags != uint.MaxValue
             || (manager->Views[(int)Manager.RenderViews.Main].Flags & 3) != 3
             || manager->MainCamera == null)
@@ -157,7 +153,7 @@ internal sealed unsafe class DepthOfField : IDisposable
             return false;
         }
 
-        if ((pauses & EffectPauseState.GetActive(graphics, _conditions)) != 0)
+        if ((pauses & EffectPauseState.GetActive(graphics, conditions)) != 0)
         {
             _status = "Paused";
             return false;
@@ -206,7 +202,8 @@ internal sealed unsafe class DepthOfField : IDisposable
             if (settings.Focus == FocusMode.Target)
             {
                 description = hasLookAt ? "Camera look-at (target unavailable)" : "Camera fallback (5 yalms, target unavailable)";
-                var target = GameMain.IsInGPose() ? _targets.GPoseTarget : _targets.Target;
+                var targets = ITargetManager.Get();
+                var target = GameMain.IsInGPose() ? targets.GPoseTarget : targets.Target;
                 if (target != null && target.IsValid())
                 {
                     Vector3 center = default;

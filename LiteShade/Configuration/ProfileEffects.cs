@@ -14,6 +14,7 @@ internal static class ProfileEffects
             copy.Contrast = source.Contrast;
             copy.Exposure = source.Exposure;
             copy.Midtones = source.Midtones;
+            copy.Curve = source.Curve;
             copy.BlackLevel = source.BlackLevel;
             copy.WhiteLevel = source.WhiteLevel;
             copy.OutputBlackLevel = source.OutputBlackLevel;

@@ -1,3 +1,10 @@
+# 1.0.2.0
+- Added midtone tint, shadow/highlight brightness and grading balance/blending.
+- Added a midtones slider and an RGB curve editor.
+- Added combat pause options and fades when pausing colours.
+- Added reset buttons for individual sliders.
+- Added advanced controls and options to hide effects in the editor.
+
 # 1.0.1.0
 - Reworked the config and preset browser.
 - Added profile folders and favourites.

@@ -213,6 +213,11 @@ internal sealed class ProfileExport
             throw new FormatException("Profile data contains invalid midtones.");
         }
 
+        if (!profile.Curve.IsValid)
+        {
+            throw new FormatException("Profile data contains an invalid curve.");
+        }
+
         if (!float.IsFinite(profile.MidtoneStrength) || profile.MidtoneStrength is < 0f or > 1f)
         {
             throw new FormatException("Profile data contains invalid midtone tint strength.");

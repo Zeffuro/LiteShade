@@ -15,17 +15,19 @@ namespace LiteShade.Graphics;
 
 internal sealed unsafe class ColorFilter : IDisposable
 {
-    public readonly record struct Settings(ColorMatrix Matrix, float Midtones, Vector3 MidtoneTint, Vector3 Shadows, Vector3 Highlights,
-        Vector2 TintParameters, uint GameFilterId, PauseOptions Pauses, PauseOptions ShadowHighlightPauses, PauseOptions GameFilterPauses);
+    public readonly record struct Settings(ColorMatrix Matrix, float Midtones, ColorCurve Curve, float CurveStrength,
+        Vector3 MidtoneTint, Vector3 Shadows, Vector3 Highlights, Vector2 TintParameters, uint GameFilterId,
+        PauseOptions Pauses, PauseOptions ShadowHighlightPauses, PauseOptions GameFilterPauses,
+        ColorCurve? CurveFrom = null, float CurveBlend = 1)
+    {
+        public bool HasCurve => CurveStrength != 0 && (!Curve.IsIdentity || CurveFrom is { IsIdentity: false });
+    }
 
     private readonly ProfileService _profiles;
 
-    private readonly IFramework _framework = IFramework.Get();
-    private readonly ICondition _conditions = ICondition.Get();
-    private readonly IClientState _client = IClientState.Get();
-
     private readonly Hook<Manager.Delegates.RenderView>? _renderHook;
     private readonly Hook<PostEffectColorFilterDarkBlend.Delegates.Draw>? _drawHook;
+    private readonly ColorLut? _lut;
 
     private readonly PostEffectColorFilterDarkBlend.PostEffectColorFilterDarkBlendVirtualTable* _vtable;
 
@@ -70,6 +72,8 @@ internal sealed unsafe class ColorFilter : IDisposable
             _vtable = PostEffectColorFilterDarkBlend.StaticVirtualTablePointer;
             _drawHook = interop.HookFromAddress<PostEffectColorFilterDarkBlend.Delegates.Draw>(_vtable->Draw, DrawFilter);
             _renderHook = interop.HookFromAddress<Manager.Delegates.RenderView>(Manager.MemberFunctionPointers.RenderView, RenderView);
+            _lut = new ColorLut();
+            _lut.Enable();
 
             _drawHook.Enable();
             _renderHook.Enable();
@@ -91,12 +95,13 @@ internal sealed unsafe class ColorFilter : IDisposable
         finally
         {
             _drawHook?.Dispose();
+            _lut?.Dispose();
         }
     }
 
     private void RenderView(Manager* renderManager, bool enabled, Manager.RenderViews view)
     {
-        if (view != Manager.RenderViews.Main || !_framework.IsInFrameworkUpdateThread)
+        if (view != Manager.RenderViews.Main || !IFramework.Get().IsInFrameworkUpdateThread)
         {
             _renderHook!.Original(renderManager, enabled, view);
             return;
@@ -105,7 +110,8 @@ internal sealed unsafe class ColorFilter : IDisposable
         var (settings, _, _) = _profiles.RenderSettings;
         _pausedEffects = 0;
         _fadingEffects = 0;
-        if (!enabled || settings is null || (settings.Value.Matrix.IsIdentity && settings.Value.Midtones == 0 && settings.Value.GameFilterId == 0
+        if (!enabled || settings is null || (settings.Value.Matrix.IsIdentity && settings.Value.Midtones == 0
+            && !settings.Value.HasCurve && settings.Value.GameFilterId == 0
             && settings.Value.MidtoneTint == Vector3.Zero && settings.Value.Shadows == Vector3.One && settings.Value.Highlights == Vector3.One))
         {
             _colourPause = _shadowPause = default;
@@ -115,8 +121,10 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        var (matrix, midtones, midtoneTint, shadows, highlights, tintParameters, gameFilterId, pauses, shadowPauses, filterPauses) = settings.Value;
-        if (!_client.IsLoggedIn || _conditions[ConditionFlag.BetweenAreas] || _conditions[ConditionFlag.BetweenAreas51])
+        var (matrix, midtones, toneCurve, curveStrength, midtoneTint, shadows, highlights, tintParameters,
+            gameFilterId, pauses, shadowPauses, filterPauses, curveFrom, curveBlend) = settings.Value;
+        var conditions = ICondition.Get();
+        if (!IClientState.Get().IsLoggedIn || conditions[ConditionFlag.BetweenAreas] || conditions[ConditionFlag.BetweenAreas51])
         {
             _colourPause = _shadowPause = default;
             _status = FilterStatus.WaitingForGameplay;
@@ -133,7 +141,7 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        var activePauses = EffectPauseState.GetActive(graphics, _conditions);
+        var activePauses = EffectPauseState.GetActive(graphics, conditions);
 
         var colourPaused = (pauses & activePauses) != 0;
         var shadowPaused = (shadowPauses & activePauses) != 0;
@@ -142,6 +150,7 @@ internal sealed unsafe class ColorFilter : IDisposable
         var shadowAmount = _shadowPause.GetAmount(shadowPaused, seconds);
         matrix = matrix.WithStrength(colourAmount);
         midtones *= colourAmount;
+        curveStrength *= colourAmount;
         if (shadowAmount != 1)
         {
             midtoneTint *= shadowAmount;
@@ -167,7 +176,8 @@ internal sealed unsafe class ColorFilter : IDisposable
             gameFilterId = 0;
             _pausedEffects |= Effect.GPoseFilter;
         }
-        if (matrix.IsIdentity && midtones == 0 && midtoneTint == Vector3.Zero && shadows == Vector3.One && highlights == Vector3.One && gameFilterId == 0)
+        if (matrix.IsIdentity && midtones == 0 && (curveStrength == 0 || (toneCurve.IsIdentity && curveFrom is not { IsIdentity: false }))
+            && midtoneTint == Vector3.Zero && shadows == Vector3.One && highlights == Vector3.One && gameFilterId == 0)
         {
             _status = "Paused";
             _renderHook!.Original(renderManager, enabled, view);
@@ -262,11 +272,13 @@ internal sealed unsafe class ColorFilter : IDisposable
         manager->Flags |= PostEffectFlags.ColorFilterDarkBlend;
         try
         {
+            _lut!.Begin(manager, part, toneCurve, curveFrom, curveBlend, curveStrength);
             _renderHook!.Original(renderManager, enabled, view);
-            _status = _applied ? FilterStatus.Active : FilterStatus.PassNotDrawn;
+            _status = _lut.Error ?? (_applied ? FilterStatus.Active : FilterStatus.PassNotDrawn);
         }
         finally
         {
+            _lut!.End();
             if (PostEffectManager.Instance() == manager)
             {
                 manager->ColorFilterCurve = originalCurve;
@@ -283,13 +295,13 @@ internal sealed unsafe class ColorFilter : IDisposable
 
     private void DrawFilter(PostEffectColorFilterDarkBlend* part)
     {
-        if (!_framework.IsInFrameworkUpdateThread || _activeManager == null || PostEffectManager.Instance() != _activeManager || part != _activePart)
+        var manager = IFramework.Get().IsInFrameworkUpdateThread ? PostEffectManager.Instance() : null;
+        if (manager == null || manager != _activeManager || part != _activePart)
         {
             _drawHook!.Original(part);
             return;
         }
 
-        var manager = _activeManager;
         var original = manager->ColorFilter;
         var filter = new PostEffectManager.ColorFilterParameters
         {

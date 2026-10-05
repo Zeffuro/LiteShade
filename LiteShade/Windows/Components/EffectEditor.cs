@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using LiteShade.Configuration;
@@ -13,12 +14,16 @@ internal sealed class EffectEditor
 {
     private readonly ProfilesTab _editor;
     private readonly GameFilterPicker _filters;
+    private readonly CurveEditor _curves;
 
     public EffectEditor(ProfilesTab editor, GameFilterPicker filters)
     {
         _editor = editor;
         _filters = filters;
+        _curves = new CurveEditor(editor);
     }
+
+    public void FlushEdits(bool force = false) => _curves.Flush(force);
 
     public void Draw(ColorProfile profile, Effect effect)
     {
@@ -109,6 +114,7 @@ internal sealed class EffectEditor
             case Effect.ColourAdjustments:
                 profile.Strength = profile.Saturation = profile.Contrast = 1;
                 profile.Tint = profile.Warmth = profile.Exposure = profile.Midtones = 0;
+                profile.Curve = ToneCurve.Identity;
                 ResetLevels(profile);
                 ResetMixer(profile);
                 break;
@@ -167,6 +173,7 @@ internal sealed class EffectEditor
 
         DrawLevels(profile);
         DrawChannelMixer(profile);
+        _curves.Draw(profile);
     }
 
     private void DrawLevels(ColorProfile profile)
@@ -467,9 +474,7 @@ internal sealed class EffectEditor
     {
         ImGui.SameLine();
         var size = ImGui.GetFrameHeight();
-        bool clicked;
-        using (ImRaii.PushFont(UiBuilder.IconFont))
-            clicked = ImGui.Button($"{FontAwesomeIcon.Undo.ToIconString()}##Reset", new Vector2(size));
+        var clicked = ImGuiComponents.IconButton("Reset", FontAwesomeIcon.Undo, new Vector2(size / ImGuiHelpers.GlobalScale));
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Reset");
         if (!clicked) return;
         reset();

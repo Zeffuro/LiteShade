@@ -25,6 +25,7 @@ public sealed record ColorProfile
     public float Contrast { get; set; } = 1f;
     public float Exposure { get; set; }
     public float Midtones { get; set; }
+    public ToneCurve Curve { get; set; } = ToneCurve.Identity;
     public float BlackLevel { get; set; }
     public float WhiteLevel { get; set; } = 1f;
     public float OutputBlackLevel { get; set; }
@@ -77,6 +78,7 @@ public sealed record ColorProfile
         Contrast = Clamp(Contrast, 0.5f, 1.5f, 1f);
         Exposure = Clamp(Exposure, -2f, 2f, 0f);
         Midtones = Clamp(Midtones, -1f, 1f, 0f);
+        if (!Curve.IsValid) Curve = ToneCurve.Identity;
         BlackLevel = Clamp(BlackLevel, 0f, 0.95f, 0f);
         WhiteLevel = Clamp(WhiteLevel, BlackLevel + 0.05f, 1f, 1f);
         OutputBlackLevel = Clamp(OutputBlackLevel, 0f, 0.95f, 0f);
