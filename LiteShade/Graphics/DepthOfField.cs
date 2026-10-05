@@ -159,6 +159,7 @@ internal sealed unsafe class DepthOfField : IDisposable
 
         var inGPose = GameMain.IsInGPose();
         if (((pauses & PauseOptions.GPose) != 0 && inGPose)
+            || ((pauses & PauseOptions.Combat) != 0 && _conditions[ConditionFlag.InCombat])
             || ((pauses & PauseOptions.Portraits) != 0 && (graphics->PortraitMode || graphics->PortraitPreview))
             || ((pauses & PauseOptions.IdleCamera) != 0 && GameMain.IsInIdleCam())
             || ((pauses & PauseOptions.Cutscenes) != 0 && !inGPose &&

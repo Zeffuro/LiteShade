@@ -10,4 +10,5 @@ public enum PauseOptions
     Cutscenes = 2,
     IdleCamera = 4,
     Portraits = 8,
+    Combat = 16,
 }

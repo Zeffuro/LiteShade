@@ -22,7 +22,7 @@ internal sealed class OptionsTab
     public void Draw()
     {
         ImGui.TextUnformatted("Pause effects during:");
-        using (var table = ImRaii.Table("Pause options", 5, ImGuiTableFlags.SizingStretchProp))
+        using (var table = ImRaii.Table("Pause options", 6, ImGuiTableFlags.SizingStretchProp))
         {
             if (table)
             {
@@ -31,6 +31,7 @@ internal sealed class OptionsTab
                 ImGui.TableSetupColumn("Cutscenes", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableSetupColumn("Idle camera", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableSetupColumn("Portrait mode", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Combat", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableHeadersRow();
                 foreach (var effect in Effects.All)
                 {
@@ -72,6 +73,7 @@ internal sealed class OptionsTab
         }
 
         PauseCheckbox(PauseOptions.Portraits, pauses, set);
+        PauseCheckbox(PauseOptions.Combat, pauses, set);
     }
 
     private void PauseCheckbox(PauseOptions option, PauseOptions pauses, Action<PauseOptions> set)

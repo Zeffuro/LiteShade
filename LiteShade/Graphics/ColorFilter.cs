@@ -132,6 +132,7 @@ internal sealed unsafe class ColorFilter : IDisposable
             || _conditions[ConditionFlag.OccupiedInCutSceneEvent])) activePauses |= PauseOptions.Cutscenes;
         if (graphics->PortraitMode || graphics->PortraitPreview) activePauses |= PauseOptions.Portraits;
         if (GameMain.IsInIdleCam()) activePauses |= PauseOptions.IdleCamera;
+        if (_conditions[ConditionFlag.InCombat]) activePauses |= PauseOptions.Combat;
 
         if ((pauses & activePauses) != 0)
         {
