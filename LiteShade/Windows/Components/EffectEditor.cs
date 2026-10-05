@@ -105,13 +105,16 @@ internal sealed class EffectEditor
         {
             case Effect.ColourAdjustments:
                 profile.Strength = profile.Saturation = profile.Contrast = 1;
-                profile.Tint = profile.Warmth = profile.Exposure = 0;
+                profile.Tint = profile.Warmth = profile.Exposure = profile.Midtones = 0;
                 ResetLevels(profile);
                 ResetMixer(profile);
                 break;
             case Effect.ShadowHighlight:
                 profile.ShadowColor = profile.HighlightColor = 0xFFFFFFFF;
                 profile.ShadowStrength = profile.HighlightStrength = 0;
+                profile.ShadowExposure = profile.HighlightExposure = 0;
+                profile.TintBalance = 0;
+                profile.TintBlending = 0.5f;
                 break;
             case Effect.GPoseFilter: profile.GameFilterId = 0; break;
             case Effect.DepthOfField:
@@ -153,6 +156,8 @@ internal sealed class EffectEditor
                 ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
                 Slider("Contrast", profile.Contrast, 0.5f, 1.5f, value => profile.Contrast = value);
                 Slider("Brightness", profile.Exposure, -2f, 2f, value => profile.Exposure = value);
+                Slider("Midtones", profile.Midtones, -1f, 1f, value => profile.Midtones = value,
+                    "Brightens or darkens the middle tones.");
             }
         }
 
@@ -260,8 +265,14 @@ internal sealed class EffectEditor
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
         TintColour("Shadows", profile.ShadowColor, value => profile.ShadowColor = value);
         Slider("Shadow strength", profile.ShadowStrength, 0, 1, value => profile.ShadowStrength = value);
+        Slider("Shadow brightness", profile.ShadowExposure, -2, 2, value => profile.ShadowExposure = value);
         TintColour("Highlights", profile.HighlightColor, value => profile.HighlightColor = value);
         Slider("Highlight strength", profile.HighlightStrength, 0, 1, value => profile.HighlightStrength = value);
+        Slider("Highlight brightness", profile.HighlightExposure, -2, 2, value => profile.HighlightExposure = value);
+        Slider("Balance", profile.TintBalance, -1, 1, value => profile.TintBalance = value,
+            "Negative favours shadows. Positive favours highlights. Ctrl-click to type a value.");
+        Slider("Blending", profile.TintBlending, 0, 1, value => profile.TintBlending = value,
+            "Lower gives a sharper split. Higher softens it. Ctrl-click to type a value.");
     }
 
     private void TintColour(string label, uint packed, Action<uint> set)

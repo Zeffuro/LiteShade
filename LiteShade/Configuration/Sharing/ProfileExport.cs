@@ -208,6 +208,23 @@ internal sealed class ProfileExport
             throw new FormatException("Profile data contains invalid levels or channel mixing.");
         }
 
+        if (!float.IsFinite(profile.Midtones) || profile.Midtones is < -1f or > 1f)
+        {
+            throw new FormatException("Profile data contains invalid midtones.");
+        }
+
+        if (!float.IsFinite(profile.ShadowExposure) || profile.ShadowExposure is < -2f or > 2f
+            || !float.IsFinite(profile.HighlightExposure) || profile.HighlightExposure is < -2f or > 2f)
+        {
+            throw new FormatException("Profile data contains invalid shadow or highlight brightness.");
+        }
+
+        if (!float.IsFinite(profile.TintBalance) || profile.TintBalance is < -1f or > 1f
+            || !float.IsFinite(profile.TintBlending) || profile.TintBlending is < 0f or > 1f)
+        {
+            throw new FormatException("Profile data contains invalid tint balance or blending.");
+        }
+
         var copy = profile.Copy();
         copy.Normalize();
         return copy;

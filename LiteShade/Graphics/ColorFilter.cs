@@ -5,7 +5,6 @@ using System.Numerics;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
-using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Graphics.PostEffect;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Render;
 using LiteShade.Configuration;
@@ -16,7 +15,7 @@ namespace LiteShade.Graphics;
 
 internal sealed unsafe class ColorFilter : IDisposable
 {
-    public readonly record struct Settings(ColorMatrix Matrix, Vector3 Shadows, Vector3 Highlights, uint GameFilterId, PauseOptions Pauses,
+    public readonly record struct Settings(ColorMatrix Matrix, float Midtones, Vector3 Shadows, Vector3 Highlights, Vector2 TintParameters, uint GameFilterId, PauseOptions Pauses,
         PauseOptions ShadowHighlightPauses, PauseOptions GameFilterPauses);
 
     private readonly ProfileService _profiles;
@@ -100,7 +99,7 @@ internal sealed unsafe class ColorFilter : IDisposable
 
         var (settings, _, _) = _profiles.RenderSettings;
         _pausedEffects = 0;
-        if (!enabled || settings is null || (settings.Value.Matrix.IsIdentity && settings.Value.GameFilterId == 0
+        if (!enabled || settings is null || (settings.Value.Matrix.IsIdentity && settings.Value.Midtones == 0 && settings.Value.GameFilterId == 0
             && settings.Value.Shadows == Vector3.One && settings.Value.Highlights == Vector3.One))
         {
             _status = !enabled ? FilterStatus.PostEffectsDisabled
@@ -109,7 +108,7 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        var (matrix, shadows, highlights, gameFilterId, pauses, shadowPauses, filterPauses) = settings.Value;
+        var (matrix, midtones, shadows, highlights, tintParameters, gameFilterId, pauses, shadowPauses, filterPauses) = settings.Value;
         if (!_client.IsLoggedIn || _conditions[ConditionFlag.BetweenAreas] || _conditions[ConditionFlag.BetweenAreas51])
         {
             _status = FilterStatus.WaitingForGameplay;
@@ -125,18 +124,12 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        var activePauses = PauseOptions.None;
-        var inGPose = GameMain.IsInGPose();
-        if (inGPose) activePauses |= PauseOptions.GPose;
-        if (!inGPose && (_conditions[ConditionFlag.WatchingCutscene] || _conditions[ConditionFlag.WatchingCutscene78]
-            || _conditions[ConditionFlag.OccupiedInCutSceneEvent])) activePauses |= PauseOptions.Cutscenes;
-        if (graphics->PortraitMode || graphics->PortraitPreview) activePauses |= PauseOptions.Portraits;
-        if (GameMain.IsInIdleCam()) activePauses |= PauseOptions.IdleCamera;
-        if (_conditions[ConditionFlag.InCombat]) activePauses |= PauseOptions.Combat;
+        var activePauses = EffectPauseState.GetActive(graphics, _conditions);
 
         if ((pauses & activePauses) != 0)
         {
             matrix = ColorMatrix.Identity;
+            midtones = 0;
             _pausedEffects |= Effect.ColourAdjustments;
         }
 
@@ -151,7 +144,7 @@ internal sealed unsafe class ColorFilter : IDisposable
             gameFilterId = 0;
             _pausedEffects |= Effect.GPoseFilter;
         }
-        if (matrix.IsIdentity && shadows == Vector3.One && highlights == Vector3.One && gameFilterId == 0)
+        if (matrix.IsIdentity && midtones == 0 && shadows == Vector3.One && highlights == Vector3.One && gameFilterId == 0)
         {
             _status = "Paused";
             _renderHook!.Original(renderManager, enabled, view);
@@ -228,12 +221,18 @@ internal sealed unsafe class ColorFilter : IDisposable
         _activePart = part;
         _matrix = normalMatrix;
         _darkMatrix = darkMatrix;
-        _darkParameters = splitTint ? new Vector3(0.5f, 0.5f, 1) : new Vector3(0, 1, 1);
+        _darkParameters = splitTint ? new Vector3(tintParameters, 1) : new Vector3(0, 1, 1);
         _applied = false;
         var originalCurve = manager->ColorFilterCurve;
-        if (gameFilter is not null)
+        var curve = gameFilter?.Curve ?? (Vector4)originalCurve;
+        if (midtones != 0)
         {
-            manager->ColorFilterCurve = gameFilter.Curve;
+            curve.Z = Math.Clamp(curve.Z + midtones, -1f, 1f);
+        }
+
+        if (gameFilter is not null || midtones != 0)
+        {
+            manager->ColorFilterCurve = curve;
         }
 
         manager->Flags |= PostEffectFlags.ColorFilterDarkBlend;

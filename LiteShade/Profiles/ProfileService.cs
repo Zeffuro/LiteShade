@@ -29,14 +29,16 @@ internal sealed class ProfileService : IDisposable
     private Guid? _overrideProfileId;
     private float _transitionSeconds;
     private ColorMatrix _transitionFrom;
+    private float _transitionMidtones;
     private Vector3 _transitionShadows;
     private Vector3 _transitionHighlights;
+    private Vector2 _transitionTintParameters;
     private long _transitionStarted;
     private float _transitionDuration;
     private ProfileContext _context;
     private ProfileSelection _selection;
 
-    private Effects _current = new(new ColorFilter.Settings(ColorMatrix.Identity, Vector3.One, Vector3.One, 0, PauseOptions.None, PauseOptions.None, PauseOptions.None), null, null);
+    private Effects _current = new(new ColorFilter.Settings(ColorMatrix.Identity, 0, Vector3.One, Vector3.One, new Vector2(0.5f), 0, PauseOptions.None, PauseOptions.None, PauseOptions.None), null, null);
     private Effects? _preview;
     private Effect _bypassed;
 
@@ -94,7 +96,7 @@ internal sealed class ProfileService : IDisposable
 
                 var effects = _preview ?? _current with { Color = CurrentColour() };
                 var colour = effects.Color;
-                if ((_bypassed & Effect.ColourAdjustments) != 0) colour = colour with { Matrix = ColorMatrix.Identity };
+                if ((_bypassed & Effect.ColourAdjustments) != 0) colour = colour with { Matrix = ColorMatrix.Identity, Midtones = 0 };
                 if ((_bypassed & Effect.ShadowHighlight) != 0) colour = colour with { Shadows = Vector3.One, Highlights = Vector3.One };
                 if ((_bypassed & Effect.GPoseFilter) != 0) colour = colour with { GameFilterId = 0 };
                 return (colour,
@@ -193,8 +195,10 @@ internal sealed class ProfileService : IDisposable
             if (_preview is null) _bypassed = 0;
             var colour = CurrentColour();
             _transitionFrom = colour.Matrix;
+            _transitionMidtones = colour.Midtones;
             _transitionShadows = colour.Shadows;
             _transitionHighlights = colour.Highlights;
+            _transitionTintParameters = colour.TintParameters;
             _transitionStarted = Stopwatch.GetTimestamp();
             _transitionDuration = transition && _enabled && _context.IsLoggedIn && !_context.IsTransitioning && _preview is null
                 && _current.Color.GameFilterId == _effects[selection.ProfileId].Color.GameFilterId
@@ -226,15 +230,18 @@ internal sealed class ProfileService : IDisposable
         return _current.Color with
         {
             Matrix = ColorMatrix.Lerp(_transitionFrom, _current.Color.Matrix, amount),
+            Midtones = float.Lerp(_transitionMidtones, _current.Color.Midtones, amount),
             Shadows = Vector3.Lerp(_transitionShadows, _current.Color.Shadows, amount),
             Highlights = Vector3.Lerp(_transitionHighlights, _current.Color.Highlights, amount),
+            TintParameters = Vector2.Lerp(_transitionTintParameters, _current.Color.TintParameters, amount),
         };
     }
 
     private Effects GetEffects(ColorProfile profile)
-        => new(new ColorFilter.Settings(ColorMatrix.FromProfile(profile),
-                ColorMatrix.TintGain(profile.ShadowColor, profile.ShadowStrength),
-                ColorMatrix.TintGain(profile.HighlightColor, profile.HighlightStrength),
+        => new(new ColorFilter.Settings(ColorMatrix.FromProfile(profile), profile.Midtones * profile.Strength,
+                ColorMatrix.TintGain(profile.ShadowColor, profile.ShadowStrength) * MathF.Pow(2f, profile.ShadowExposure * 0.5f),
+                ColorMatrix.TintGain(profile.HighlightColor, profile.HighlightStrength) * MathF.Pow(2f, profile.HighlightExposure * 0.5f),
+                new Vector2(0.5f - profile.TintBalance * 0.45f, MathF.Max(0.01f, profile.TintBlending)),
                 profile.GameFilterId, _config.GetPauses(Effect.ColourAdjustments),
                 _config.GetPauses(Effect.ShadowHighlight), _config.GetPauses(Effect.GPoseFilter)),
             profile.DepthOfField ? new DepthOfField.Settings(profile.Focus, profile.FocusDistance, profile.FNumber, _config.GetPauses(Effect.DepthOfField)) : null,

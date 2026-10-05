@@ -13,6 +13,7 @@ internal static class ProfileEffects
             copy.Saturation = source.Saturation;
             copy.Contrast = source.Contrast;
             copy.Exposure = source.Exposure;
+            copy.Midtones = source.Midtones;
             copy.BlackLevel = source.BlackLevel;
             copy.WhiteLevel = source.WhiteLevel;
             copy.OutputBlackLevel = source.OutputBlackLevel;
@@ -26,8 +27,12 @@ internal static class ProfileEffects
         {
             copy.ShadowColor = source.ShadowColor;
             copy.ShadowStrength = source.ShadowStrength;
+            copy.ShadowExposure = source.ShadowExposure;
             copy.HighlightColor = source.HighlightColor;
             copy.HighlightStrength = source.HighlightStrength;
+            copy.HighlightExposure = source.HighlightExposure;
+            copy.TintBalance = source.TintBalance;
+            copy.TintBlending = source.TintBlending;
         }
 
         if ((effects & Effect.GPoseFilter) != 0)

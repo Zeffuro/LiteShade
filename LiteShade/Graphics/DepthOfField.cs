@@ -157,14 +157,7 @@ internal sealed unsafe class DepthOfField : IDisposable
             return false;
         }
 
-        var inGPose = GameMain.IsInGPose();
-        if (((pauses & PauseOptions.GPose) != 0 && inGPose)
-            || ((pauses & PauseOptions.Combat) != 0 && _conditions[ConditionFlag.InCombat])
-            || ((pauses & PauseOptions.Portraits) != 0 && (graphics->PortraitMode || graphics->PortraitPreview))
-            || ((pauses & PauseOptions.IdleCamera) != 0 && GameMain.IsInIdleCam())
-            || ((pauses & PauseOptions.Cutscenes) != 0 && !inGPose &&
-                (_conditions[ConditionFlag.WatchingCutscene] || _conditions[ConditionFlag.WatchingCutscene78]
-                    || _conditions[ConditionFlag.OccupiedInCutSceneEvent])))
+        if ((pauses & EffectPauseState.GetActive(graphics, _conditions)) != 0)
         {
             _status = "Paused";
             return false;

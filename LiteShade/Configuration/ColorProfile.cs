@@ -24,6 +24,7 @@ public sealed record ColorProfile
     public float Saturation { get; set; } = 1f;
     public float Contrast { get; set; } = 1f;
     public float Exposure { get; set; }
+    public float Midtones { get; set; }
     public float BlackLevel { get; set; }
     public float WhiteLevel { get; set; } = 1f;
     public float OutputBlackLevel { get; set; }
@@ -33,8 +34,12 @@ public sealed record ColorProfile
     public Vector3 BlueChannel { get; set; } = Vector3.UnitZ;
     public uint ShadowColor { get; set; } = 0xFFFFFFFF;
     public float ShadowStrength { get; set; }
+    public float ShadowExposure { get; set; }
     public uint HighlightColor { get; set; } = 0xFFFFFFFF;
     public float HighlightStrength { get; set; }
+    public float HighlightExposure { get; set; }
+    public float TintBalance { get; set; }
+    public float TintBlending { get; set; } = 0.5f;
     public uint GameFilterId { get; set; }
     public bool Vignette { get; set; }
     public float VignetteAmount { get; set; } = 0.35f;
@@ -69,6 +74,7 @@ public sealed record ColorProfile
         Saturation = Clamp(Saturation, 0f, 2f, 1f);
         Contrast = Clamp(Contrast, 0.5f, 1.5f, 1f);
         Exposure = Clamp(Exposure, -2f, 2f, 0f);
+        Midtones = Clamp(Midtones, -1f, 1f, 0f);
         BlackLevel = Clamp(BlackLevel, 0f, 0.95f, 0f);
         WhiteLevel = Clamp(WhiteLevel, BlackLevel + 0.05f, 1f, 1f);
         OutputBlackLevel = Clamp(OutputBlackLevel, 0f, 0.95f, 0f);
@@ -80,6 +86,10 @@ public sealed record ColorProfile
         HighlightColor |= 0xFF000000;
         ShadowStrength = Clamp(ShadowStrength, 0f, 1f, 0f);
         HighlightStrength = Clamp(HighlightStrength, 0f, 1f, 0f);
+        ShadowExposure = Clamp(ShadowExposure, -2f, 2f, 0f);
+        HighlightExposure = Clamp(HighlightExposure, -2f, 2f, 0f);
+        TintBalance = Clamp(TintBalance, -1f, 1f, 0f);
+        TintBlending = Clamp(TintBlending, 0f, 1f, 0.5f);
         FocusDistance = Clamp(FocusDistance, 0.5f, 200f, 5f);
         FNumber = Clamp(FNumber, 0.5f, 32f, 4f);
         VignetteAmount = Clamp(VignetteAmount, 0f, 1f, 0.35f);
