@@ -19,7 +19,7 @@ internal static class Effects
     public static string Label(this Effect effect) => effect switch
     {
         Effect.ColourAdjustments => "Colour adjustments",
-        Effect.ShadowHighlight => "Shadow/highlight",
+        Effect.ShadowHighlight => "Colour grading",
         Effect.GPoseFilter => "GPose filter",
         Effect.DepthOfField => "Depth of field",
         Effect.Vignette => "Vignette",

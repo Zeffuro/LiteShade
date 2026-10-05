@@ -35,6 +35,8 @@ public sealed record ColorProfile
     public uint ShadowColor { get; set; } = 0xFFFFFFFF;
     public float ShadowStrength { get; set; }
     public float ShadowExposure { get; set; }
+    public uint MidtoneColor { get; set; } = 0xFFFFFFFF;
+    public float MidtoneStrength { get; set; }
     public uint HighlightColor { get; set; } = 0xFFFFFFFF;
     public float HighlightStrength { get; set; }
     public float HighlightExposure { get; set; }
@@ -83,8 +85,10 @@ public sealed record ColorProfile
         GreenChannel = ClampChannel(GreenChannel, Vector3.UnitY);
         BlueChannel = ClampChannel(BlueChannel, Vector3.UnitZ);
         ShadowColor |= 0xFF000000;
+        MidtoneColor |= 0xFF000000;
         HighlightColor |= 0xFF000000;
         ShadowStrength = Clamp(ShadowStrength, 0f, 1f, 0f);
+        MidtoneStrength = Clamp(MidtoneStrength, 0f, 1f, 0f);
         HighlightStrength = Clamp(HighlightStrength, 0f, 1f, 0f);
         ShadowExposure = Clamp(ShadowExposure, -2f, 2f, 0f);
         HighlightExposure = Clamp(HighlightExposure, -2f, 2f, 0f);

@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using LiteShade.Configuration;
@@ -61,6 +62,8 @@ internal sealed class EffectEditor
             _editor.Save();
         }
 
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Reset this effect, including hidden controls.");
+
         if (_editor.ShowRendererStatus(profile))
         {
             ImGui.SameLine();
@@ -79,7 +82,7 @@ internal sealed class EffectEditor
             case Effect.ColourAdjustments: DrawColourControls(profile); break;
             case Effect.ShadowHighlight: DrawSplitTone(profile); break;
             case Effect.GPoseFilter:
-                using (var table = ImRaii.Table("Filter control", 2, ImGuiTableFlags.SizingStretchProp))
+                using (var table = ImRaii.Table("Filter control", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX))
                 {
                     if (table)
                     {
@@ -110,8 +113,8 @@ internal sealed class EffectEditor
                 ResetMixer(profile);
                 break;
             case Effect.ShadowHighlight:
-                profile.ShadowColor = profile.HighlightColor = 0xFFFFFFFF;
-                profile.ShadowStrength = profile.HighlightStrength = 0;
+                profile.ShadowColor = profile.MidtoneColor = profile.HighlightColor = 0xFFFFFFFF;
+                profile.ShadowStrength = profile.MidtoneStrength = profile.HighlightStrength = 0;
                 profile.ShadowExposure = profile.HighlightExposure = 0;
                 profile.TintBalance = 0;
                 profile.TintBlending = 0.5f;
@@ -135,28 +138,29 @@ internal sealed class EffectEditor
 
     private void DrawColourControls(ColorProfile profile)
     {
-        using (var table = ImRaii.Table("Colour controls", 2, ImGuiTableFlags.SizingStretchProp))
+        using (var table = ImRaii.Table("Colour controls", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX))
         {
             if (table)
             {
                 ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
-                Slider("Adjustment strength", profile.Strength, 0f, 1f, value => profile.Strength = value);
-                Slider("Tint", profile.Tint, -1f, 1f, value => profile.Tint = value, "Green to magenta balance.");
-                Slider("Temperature", profile.Warmth, -1f, 1f, value => profile.Warmth = value, "Cool to warm balance.");
-                Slider("Saturation", profile.Saturation, 0f, 2f, value => profile.Saturation = value);
+                Slider("Adjustment strength", profile.Strength, 0f, 1f, value => profile.Strength = value, 1);
+                Slider("Tint", profile.Tint, -1f, 1f, value => profile.Tint = value, 0, "Green to magenta balance.");
+                Slider("Temperature", profile.Warmth, -1f, 1f, value => profile.Warmth = value, 0, "Cool to warm balance.");
+                Slider("Saturation", profile.Saturation, 0f, 2f, value => profile.Saturation = value, 1);
+                Slider("Contrast", profile.Contrast, 0.5f, 1.5f, value => profile.Contrast = value, 1);
+                Slider("Brightness", profile.Exposure, -2f, 2f, value => profile.Exposure = value, 0);
             }
         }
 
-        using (var tone = ImRaii.Table("Tone controls", 2, ImGuiTableFlags.SizingStretchProp))
+        if (!_editor.Config.ShowAdvancedControls) return;
+        using (var tone = ImRaii.Table("Tone controls", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX))
         {
             if (tone)
             {
                 ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
                 ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
-                Slider("Contrast", profile.Contrast, 0.5f, 1.5f, value => profile.Contrast = value);
-                Slider("Brightness", profile.Exposure, -2f, 2f, value => profile.Exposure = value);
-                Slider("Midtones", profile.Midtones, -1f, 1f, value => profile.Midtones = value,
+                Slider("Midtones", profile.Midtones, -1f, 1f, value => profile.Midtones = value, 0,
                     "Brightens or darkens the middle tones.");
             }
         }
@@ -167,6 +171,7 @@ internal sealed class EffectEditor
 
     private void DrawLevels(ColorProfile profile)
     {
+        using var indent = ImRaii.PushStyle(ImGuiStyleVar.IndentSpacing, 0f);
         using var node = ImRaii.TreeNode("Black/white levels");
         if (!node) return;
 
@@ -176,23 +181,24 @@ internal sealed class EffectEditor
             _editor.Save();
         }
 
-        using var table = ImRaii.Table("Levels", 2, ImGuiTableFlags.SizingStretchProp);
+        using var table = ImRaii.Table("Levels", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX);
         if (!table) return;
 
         ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
         Slider("Input black", profile.BlackLevel, 0f, Math.Min(0.95f, profile.WhiteLevel - 0.05f),
-            value => profile.BlackLevel = value, "This input level becomes black.");
+            value => profile.BlackLevel = value, 0, "This input level becomes black.");
         Slider("Input white", profile.WhiteLevel, profile.BlackLevel + 0.05f, 1f,
-            value => profile.WhiteLevel = value, "This input level becomes white.");
+            value => profile.WhiteLevel = value, 1, "This input level becomes white.");
         Slider("Output black", profile.OutputBlackLevel, 0f, Math.Min(0.95f, profile.OutputWhiteLevel - 0.05f),
-            value => profile.OutputBlackLevel = value, "Raises the darkest output level.");
+            value => profile.OutputBlackLevel = value, 0, "Raises the darkest output level.");
         Slider("Output white", profile.OutputWhiteLevel, profile.OutputBlackLevel + 0.05f, 1f,
-            value => profile.OutputWhiteLevel = value, "Lowers the brightest output level.");
+            value => profile.OutputWhiteLevel = value, 1, "Lowers the brightest output level.");
     }
 
     private void DrawChannelMixer(ColorProfile profile)
     {
+        using var indent = ImRaii.PushStyle(ImGuiStyleVar.IndentSpacing, 0f);
         using var node = ImRaii.TreeNode("RGB channel mixer");
         if (!node) return;
 
@@ -202,29 +208,31 @@ internal sealed class EffectEditor
             _editor.Save();
         }
 
-        using var table = ImRaii.Table("Mixer", 4, ImGuiTableFlags.SizingStretchSame);
+        using var table = ImRaii.Table("Mixer", 4, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX);
         if (!table) return;
 
-        ImGui.TableSetupColumn("Output", ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Output", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Red input", ImGuiTableColumnFlags.WidthStretch, 1);
         ImGui.TableSetupColumn("Green input", ImGuiTableColumnFlags.WidthStretch, 1);
         ImGui.TableSetupColumn("Blue input", ImGuiTableColumnFlags.WidthStretch, 1);
         ImGui.TableHeadersRow();
-        MixerRow("Red", profile.RedChannel, value => profile.RedChannel = value);
-        MixerRow("Green", profile.GreenChannel, value => profile.GreenChannel = value);
-        MixerRow("Blue", profile.BlueChannel, value => profile.BlueChannel = value);
+        MixerRow("Red", profile.RedChannel, Vector3.UnitX, value => profile.RedChannel = value);
+        MixerRow("Green", profile.GreenChannel, Vector3.UnitY, value => profile.GreenChannel = value);
+        MixerRow("Blue", profile.BlueChannel, Vector3.UnitZ, value => profile.BlueChannel = value);
     }
 
-    private void MixerRow(string label, Vector3 current, Action<Vector3> set)
+    private void MixerRow(string label, Vector3 current, Vector3 neutral, Action<Vector3> set)
     {
         using var id = ImRaii.PushId(label);
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
+        ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted(label);
         for (var input = 0; input < 3; input++)
         {
             ImGui.TableNextColumn();
-            ImGui.SetNextItemWidth(-1);
+            using var componentId = ImRaii.PushId(input);
+            SetControlWidth();
             var previous = current[input];
             var value = previous;
             if (ImGui.SliderFloat($"##{input}", ref value, -2f, 2f, "%.2f"))
@@ -237,6 +245,12 @@ internal sealed class EffectEditor
 
             if (ImGui.IsItemHovered()) ImGui.SetTooltip("Contribution to the output channel. Ctrl-click to type a value.");
             if (ImGui.IsItemDeactivatedAfterEdit()) _editor.Save();
+            var component = input;
+            ResetControl(() =>
+            {
+                current[component] = neutral[component];
+                set(current);
+            });
         }
     }
 
@@ -255,7 +269,7 @@ internal sealed class EffectEditor
 
     private void DrawSplitTone(ColorProfile profile)
     {
-        using var table = ImRaii.Table("Split tone", 2, ImGuiTableFlags.SizingStretchProp);
+        using var table = ImRaii.Table("Split tone", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX);
         if (!table)
         {
             return;
@@ -263,26 +277,34 @@ internal sealed class EffectEditor
 
         ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
-        TintColour("Shadows", profile.ShadowColor, value => profile.ShadowColor = value);
-        Slider("Shadow strength", profile.ShadowStrength, 0, 1, value => profile.ShadowStrength = value);
-        Slider("Shadow brightness", profile.ShadowExposure, -2, 2, value => profile.ShadowExposure = value);
-        TintColour("Highlights", profile.HighlightColor, value => profile.HighlightColor = value);
-        Slider("Highlight strength", profile.HighlightStrength, 0, 1, value => profile.HighlightStrength = value);
-        Slider("Highlight brightness", profile.HighlightExposure, -2, 2, value => profile.HighlightExposure = value);
-        Slider("Balance", profile.TintBalance, -1, 1, value => profile.TintBalance = value,
+        TintColour("Shadows", profile.ShadowColor, value => profile.ShadowColor = value, 0xFFFFFFFF);
+        Slider("Shadow strength", profile.ShadowStrength, 0, 1, value => profile.ShadowStrength = value, 0);
+        if (_editor.Config.ShowAdvancedControls)
+            Slider("Shadow brightness", profile.ShadowExposure, -2, 2, value => profile.ShadowExposure = value, 0);
+        TintColour("Midtones", profile.MidtoneColor, value => profile.MidtoneColor = value, 0xFFFFFFFF);
+        Slider("Midtone strength", profile.MidtoneStrength, 0, 1, value => profile.MidtoneStrength = value, 0,
+            "Balance and Blending shape the tint range. Extreme Balance removes the midtones.");
+        TintColour("Highlights", profile.HighlightColor, value => profile.HighlightColor = value, 0xFFFFFFFF);
+        Slider("Highlight strength", profile.HighlightStrength, 0, 1, value => profile.HighlightStrength = value, 0);
+        if (_editor.Config.ShowAdvancedControls)
+            Slider("Highlight brightness", profile.HighlightExposure, -2, 2, value => profile.HighlightExposure = value, 0);
+        if (!_editor.Config.ShowAdvancedControls) return;
+        Slider("Balance", profile.TintBalance, -1, 1, value => profile.TintBalance = value, 0,
             "Negative favours shadows. Positive favours highlights. Ctrl-click to type a value.");
-        Slider("Blending", profile.TintBlending, 0, 1, value => profile.TintBlending = value,
+        Slider("Blending", profile.TintBlending, 0, 1, value => profile.TintBlending = value, 0.5f,
             "Lower gives a sharper split. Higher softens it. Ctrl-click to type a value.");
     }
 
-    private void TintColour(string label, uint packed, Action<uint> set)
+    private void TintColour(string label, uint packed, Action<uint> set, uint neutral)
     {
+        using var id = ImRaii.PushId(label);
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
+        ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted(label);
         ImGui.TableNextColumn();
         var colour = ImGui.ColorConvertU32ToFloat4(packed);
-        ImGui.SetNextItemWidth(-1);
+        SetControlWidth();
         if (ImGui.ColorEdit4($"##{label}", ref colour, ImGuiColorEditFlags.NoAlpha))
         {
             set(ImGui.ColorConvertFloat4ToU32(colour));
@@ -294,11 +316,13 @@ internal sealed class EffectEditor
         {
             _editor.Save();
         }
+
+        ResetControl(() => set(neutral));
     }
 
     private void DrawVignetteControls(ColorProfile profile)
     {
-        using var table = ImRaii.Table("Vignette controls", 2, ImGuiTableFlags.SizingStretchProp);
+        using var table = ImRaii.Table("Vignette controls", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX);
         if (!table)
         {
             return;
@@ -306,32 +330,19 @@ internal sealed class EffectEditor
 
         ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
-        Slider("Amount", profile.VignetteAmount, 0f, 1f, value => profile.VignetteAmount = value, "Corner opacity");
-        Slider("Radius", profile.VignetteRadius, 0f, 0.95f, value => profile.VignetteRadius = value, "Centre clear area");
-        Slider("Shape", profile.VignetteShape, 0f, 1f, value => profile.VignetteShape = value, "Circle to ellipse");
-
-        ImGui.TableNextRow();
-        ImGui.TableNextColumn();
-        ImGui.TextUnformatted("Colour");
-        ImGui.TableNextColumn();
-        var colour = ImGui.ColorConvertU32ToFloat4(profile.VignetteColor);
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.ColorEdit4("##Colour", ref colour, ImGuiColorEditFlags.NoAlpha))
+        Slider("Amount", profile.VignetteAmount, 0f, 1f, value => profile.VignetteAmount = value, 0.35f, "Corner opacity");
+        if (_editor.Config.ShowAdvancedControls)
         {
-            profile.VignetteColor = ImGui.ColorConvertFloat4ToU32(colour);
-            _editor.Profiles.Refresh();
-            _editor.MarkPreviewDirty();
+            Slider("Radius", profile.VignetteRadius, 0f, 0.95f, value => profile.VignetteRadius = value, 0.6f, "Centre clear area");
+            Slider("Shape", profile.VignetteShape, 0f, 1f, value => profile.VignetteShape = value, 0.5f, "Circle to ellipse");
         }
 
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            _editor.Save();
-        }
+        TintColour("Colour", profile.VignetteColor, value => profile.VignetteColor = value, 0xFF000000);
     }
 
     private void DrawDepthOfFieldControls(ColorProfile profile)
     {
-        using var table = ImRaii.Table("Depth of field controls", 2, ImGuiTableFlags.SizingStretchProp);
+        using var table = ImRaii.Table("Depth of field controls", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX);
         if (!table)
         {
             return;
@@ -339,15 +350,16 @@ internal sealed class EffectEditor
 
         ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
-        Slider("Aperture", profile.FNumber, 0.5f, 32f, value => profile.FNumber = value,
+        Slider("Aperture", profile.FNumber, 0.5f, 32f, value => profile.FNumber = value, 4,
             "Lower values blur more. Ctrl-click to type a value.", ImGuiSliderFlags.Logarithmic);
 
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
+        ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted("Focus");
         ImGui.TableNextColumn();
         var focus = profile.Focus;
-        ImGui.SetNextItemWidth(-1);
+        SetControlWidth();
         using (var combo = ImRaii.Combo("##Focus", FocusLabel(focus)))
         {
             if (combo)
@@ -364,9 +376,11 @@ internal sealed class EffectEditor
             }
         }
 
+        using (ImRaii.PushId("Focus")) ResetControl(() => profile.Focus = FocusMode.Target);
+
         if (focus == FocusMode.Manual)
         {
-            Drag("Fixed distance", profile.FocusDistance, 0.5f, 200f, value => profile.FocusDistance = value,
+            Drag("Fixed distance", profile.FocusDistance, 0.5f, 200f, value => profile.FocusDistance = value, 5,
                 "Distance from the camera. Ctrl-click to type a value.");
         }
 
@@ -383,15 +397,17 @@ internal sealed class EffectEditor
         }
     }
 
-    private void Slider(string label, float current, float min, float max, Action<float> set, string? tooltip = null,
+    private void Slider(string label, float current, float min, float max, Action<float> set, float neutral, string? tooltip = null,
         ImGuiSliderFlags flags = ImGuiSliderFlags.None)
     {
+        using var id = ImRaii.PushId(label);
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
+        ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted(label);
         ImGui.TableNextColumn();
         var previous = current;
-        ImGui.SetNextItemWidth(-1);
+        SetControlWidth();
         if (ImGui.SliderFloat($"##{label}", ref current, min, max, "%.2f", flags))
         {
             set(float.IsFinite(current) ? Math.Clamp(current, min, max) : previous);
@@ -408,16 +424,20 @@ internal sealed class EffectEditor
         {
             _editor.Save();
         }
+
+        ResetControl(() => set(Math.Clamp(neutral, min, max)));
     }
 
-    private void Drag(string label, float current, float min, float max, Action<float> set, string? tooltip = null)
+    private void Drag(string label, float current, float min, float max, Action<float> set, float neutral, string? tooltip = null)
     {
+        using var id = ImRaii.PushId(label);
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
+        ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted(label);
         ImGui.TableNextColumn();
         var previous = current;
-        ImGui.SetNextItemWidth(-1);
+        SetControlWidth();
         if (ImGui.DragFloat($"##{label}", ref current, 0.01f, min, max, "%.2f"))
         {
             set(float.IsFinite(current) ? Math.Clamp(current, min, max) : previous);
@@ -434,6 +454,26 @@ internal sealed class EffectEditor
         {
             _editor.Save();
         }
+
+        ResetControl(() => set(Math.Clamp(neutral, min, max)));
+    }
+
+    private static void SetControlWidth()
+    {
+        ImGui.SetNextItemWidth(Math.Max(1, ImGui.GetContentRegionAvail().X - ImGui.GetFrameHeight() - ImGui.GetStyle().ItemSpacing.X));
+    }
+
+    private void ResetControl(Action reset)
+    {
+        ImGui.SameLine();
+        var size = ImGui.GetFrameHeight();
+        bool clicked;
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+            clicked = ImGui.Button($"{FontAwesomeIcon.Undo.ToIconString()}##Reset", new Vector2(size));
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Reset");
+        if (!clicked) return;
+        reset();
+        _editor.Save();
     }
 
     private static string FocusLabel(FocusMode focus) => focus switch

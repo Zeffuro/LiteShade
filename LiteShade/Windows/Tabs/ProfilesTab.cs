@@ -154,9 +154,24 @@ internal sealed class ProfilesTab
         if (ImGui.IsItemDeactivatedAfterEdit()) Save();
 
         ImGui.Spacing();
+        var advanced = _config.ShowAdvancedControls;
+        if (ImGui.Checkbox("Advanced controls", ref advanced))
+        {
+            _config.ShowAdvancedControls = advanced;
+            ConfigRepository.Save(_config);
+        }
+
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Hidden controls still apply.");
+        if (_config.HiddenEffects != 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("Some effects are hidden");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Choose which effects to show in Options. Hidden effects still apply.");
+        }
+
         foreach (var effect in Effects.All)
         {
-            _effects.Draw(profile, effect);
+            if ((_config.HiddenEffects & effect) == 0) _effects.Draw(profile, effect);
         }
     }
 

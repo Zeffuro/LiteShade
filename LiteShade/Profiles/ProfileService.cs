@@ -30,6 +30,7 @@ internal sealed class ProfileService : IDisposable
     private float _transitionSeconds;
     private ColorMatrix _transitionFrom;
     private float _transitionMidtones;
+    private Vector3 _transitionMidtoneTint;
     private Vector3 _transitionShadows;
     private Vector3 _transitionHighlights;
     private Vector2 _transitionTintParameters;
@@ -38,7 +39,7 @@ internal sealed class ProfileService : IDisposable
     private ProfileContext _context;
     private ProfileSelection _selection;
 
-    private Effects _current = new(new ColorFilter.Settings(ColorMatrix.Identity, 0, Vector3.One, Vector3.One, new Vector2(0.5f), 0, PauseOptions.None, PauseOptions.None, PauseOptions.None), null, null);
+    private Effects _current = new(new ColorFilter.Settings(ColorMatrix.Identity, 0, Vector3.Zero, Vector3.One, Vector3.One, new Vector2(0.5f), 0, PauseOptions.None, PauseOptions.None, PauseOptions.None), null, null);
     private Effects? _preview;
     private Effect _bypassed;
 
@@ -83,6 +84,11 @@ internal sealed class ProfileService : IDisposable
         }
     }
 
+    public float TransitionSeconds
+    {
+        get { lock (_sync) return _transitionSeconds; }
+    }
+
     public (ColorFilter.Settings? Color, DepthOfField.Settings? DepthOfField, Vignette.Settings? Vignette) RenderSettings
     {
         get
@@ -97,7 +103,7 @@ internal sealed class ProfileService : IDisposable
                 var effects = _preview ?? _current with { Color = CurrentColour() };
                 var colour = effects.Color;
                 if ((_bypassed & Effect.ColourAdjustments) != 0) colour = colour with { Matrix = ColorMatrix.Identity, Midtones = 0 };
-                if ((_bypassed & Effect.ShadowHighlight) != 0) colour = colour with { Shadows = Vector3.One, Highlights = Vector3.One };
+                if ((_bypassed & Effect.ShadowHighlight) != 0) colour = colour with { MidtoneTint = Vector3.Zero, Shadows = Vector3.One, Highlights = Vector3.One };
                 if ((_bypassed & Effect.GPoseFilter) != 0) colour = colour with { GameFilterId = 0 };
                 return (colour,
                     (_bypassed & Effect.DepthOfField) != 0 ? null : effects.DepthOfField,
@@ -196,6 +202,7 @@ internal sealed class ProfileService : IDisposable
             var colour = CurrentColour();
             _transitionFrom = colour.Matrix;
             _transitionMidtones = colour.Midtones;
+            _transitionMidtoneTint = colour.MidtoneTint;
             _transitionShadows = colour.Shadows;
             _transitionHighlights = colour.Highlights;
             _transitionTintParameters = colour.TintParameters;
@@ -231,6 +238,7 @@ internal sealed class ProfileService : IDisposable
         {
             Matrix = ColorMatrix.Lerp(_transitionFrom, _current.Color.Matrix, amount),
             Midtones = float.Lerp(_transitionMidtones, _current.Color.Midtones, amount),
+            MidtoneTint = Vector3.Lerp(_transitionMidtoneTint, _current.Color.MidtoneTint, amount),
             Shadows = Vector3.Lerp(_transitionShadows, _current.Color.Shadows, amount),
             Highlights = Vector3.Lerp(_transitionHighlights, _current.Color.Highlights, amount),
             TintParameters = Vector2.Lerp(_transitionTintParameters, _current.Color.TintParameters, amount),
@@ -239,6 +247,7 @@ internal sealed class ProfileService : IDisposable
 
     private Effects GetEffects(ColorProfile profile)
         => new(new ColorFilter.Settings(ColorMatrix.FromProfile(profile), profile.Midtones * profile.Strength,
+                ColorMatrix.MidtoneTint(profile.MidtoneColor, profile.MidtoneStrength),
                 ColorMatrix.TintGain(profile.ShadowColor, profile.ShadowStrength) * MathF.Pow(2f, profile.ShadowExposure * 0.5f),
                 ColorMatrix.TintGain(profile.HighlightColor, profile.HighlightStrength) * MathF.Pow(2f, profile.HighlightExposure * 0.5f),
                 new Vector2(0.5f - profile.TintBalance * 0.45f, MathF.Max(0.01f, profile.TintBlending)),

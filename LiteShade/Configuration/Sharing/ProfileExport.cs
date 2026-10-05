@@ -213,6 +213,11 @@ internal sealed class ProfileExport
             throw new FormatException("Profile data contains invalid midtones.");
         }
 
+        if (!float.IsFinite(profile.MidtoneStrength) || profile.MidtoneStrength is < 0f or > 1f)
+        {
+            throw new FormatException("Profile data contains invalid midtone tint strength.");
+        }
+
         if (!float.IsFinite(profile.ShadowExposure) || profile.ShadowExposure is < -2f or > 2f
             || !float.IsFinite(profile.HighlightExposure) || profile.HighlightExposure is < -2f or > 2f)
         {

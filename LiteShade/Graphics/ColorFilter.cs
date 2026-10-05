@@ -15,8 +15,8 @@ namespace LiteShade.Graphics;
 
 internal sealed unsafe class ColorFilter : IDisposable
 {
-    public readonly record struct Settings(ColorMatrix Matrix, float Midtones, Vector3 Shadows, Vector3 Highlights, Vector2 TintParameters, uint GameFilterId, PauseOptions Pauses,
-        PauseOptions ShadowHighlightPauses, PauseOptions GameFilterPauses);
+    public readonly record struct Settings(ColorMatrix Matrix, float Midtones, Vector3 MidtoneTint, Vector3 Shadows, Vector3 Highlights,
+        Vector2 TintParameters, uint GameFilterId, PauseOptions Pauses, PauseOptions ShadowHighlightPauses, PauseOptions GameFilterPauses);
 
     private readonly ProfileService _profiles;
 
@@ -36,11 +36,16 @@ internal sealed unsafe class ColorFilter : IDisposable
     private Vector3 _darkParameters;
 
     private bool _applied;
+    private PauseFade _colourPause;
+    private PauseFade _shadowPause;
     private volatile string _status = FilterStatus.WaitingForScene;
     private volatile Effect _pausedEffects;
+    private volatile Effect _fadingEffects;
 
     public string Status => _status;
-    public string StatusFor(Effect effect) => (_pausedEffects & effect) != 0 ? "Paused" : _status;
+    public string StatusFor(Effect effect) => (_fadingEffects & effect) != 0 && (_status == FilterStatus.Active || _status == "Paused")
+        ? (_pausedEffects & effect) != 0 ? "Fading out" : "Fading in"
+        : (_pausedEffects & effect) != 0 ? "Paused" : _status;
     public IReadOnlyList<GameFilter> GameFilters { get; } = [];
     public string? GameFiltersError { get; }
     private readonly Dictionary<uint, GameFilter> _gameFilters = [];
@@ -99,18 +104,21 @@ internal sealed unsafe class ColorFilter : IDisposable
 
         var (settings, _, _) = _profiles.RenderSettings;
         _pausedEffects = 0;
+        _fadingEffects = 0;
         if (!enabled || settings is null || (settings.Value.Matrix.IsIdentity && settings.Value.Midtones == 0 && settings.Value.GameFilterId == 0
-            && settings.Value.Shadows == Vector3.One && settings.Value.Highlights == Vector3.One))
+            && settings.Value.MidtoneTint == Vector3.Zero && settings.Value.Shadows == Vector3.One && settings.Value.Highlights == Vector3.One))
         {
+            _colourPause = _shadowPause = default;
             _status = !enabled ? FilterStatus.PostEffectsDisabled
                 : settings is null ? FilterStatus.Disabled : FilterStatus.Neutral;
             _renderHook!.Original(renderManager, enabled, view);
             return;
         }
 
-        var (matrix, midtones, shadows, highlights, tintParameters, gameFilterId, pauses, shadowPauses, filterPauses) = settings.Value;
+        var (matrix, midtones, midtoneTint, shadows, highlights, tintParameters, gameFilterId, pauses, shadowPauses, filterPauses) = settings.Value;
         if (!_client.IsLoggedIn || _conditions[ConditionFlag.BetweenAreas] || _conditions[ConditionFlag.BetweenAreas51])
         {
+            _colourPause = _shadowPause = default;
             _status = FilterStatus.WaitingForGameplay;
             _renderHook!.Original(renderManager, enabled, view);
             return;
@@ -119,6 +127,7 @@ internal sealed unsafe class ColorFilter : IDisposable
         var graphics = GraphicsConfig.Instance();
         if (graphics == null)
         {
+            _colourPause = _shadowPause = default;
             _status = FilterStatus.WaitingForGraphics;
             _renderHook!.Original(renderManager, enabled, view);
             return;
@@ -126,25 +135,39 @@ internal sealed unsafe class ColorFilter : IDisposable
 
         var activePauses = EffectPauseState.GetActive(graphics, _conditions);
 
-        if ((pauses & activePauses) != 0)
+        var colourPaused = (pauses & activePauses) != 0;
+        var shadowPaused = (shadowPauses & activePauses) != 0;
+        var seconds = _profiles.TransitionSeconds;
+        var colourAmount = _colourPause.GetAmount(colourPaused, seconds);
+        var shadowAmount = _shadowPause.GetAmount(shadowPaused, seconds);
+        matrix = matrix.WithStrength(colourAmount);
+        midtones *= colourAmount;
+        if (shadowAmount != 1)
         {
-            matrix = ColorMatrix.Identity;
-            midtones = 0;
+            midtoneTint *= shadowAmount;
+            shadows = shadowAmount == 0 ? Vector3.One : Vector3.Lerp(Vector3.One, shadows, shadowAmount);
+            highlights = shadowAmount == 0 ? Vector3.One : Vector3.Lerp(Vector3.One, highlights, shadowAmount);
+        }
+
+        if (colourPaused)
+        {
             _pausedEffects |= Effect.ColourAdjustments;
         }
 
-        if ((shadowPauses & activePauses) != 0)
+        if (shadowPaused)
         {
-            shadows = highlights = Vector3.One;
             _pausedEffects |= Effect.ShadowHighlight;
         }
+
+        if (colourPaused ? colourAmount > 0 : colourAmount < 1) _fadingEffects |= Effect.ColourAdjustments;
+        if (shadowPaused ? shadowAmount > 0 : shadowAmount < 1) _fadingEffects |= Effect.ShadowHighlight;
 
         if ((filterPauses & activePauses) != 0)
         {
             gameFilterId = 0;
             _pausedEffects |= Effect.GPoseFilter;
         }
-        if (matrix.IsIdentity && midtones == 0 && shadows == Vector3.One && highlights == Vector3.One && gameFilterId == 0)
+        if (matrix.IsIdentity && midtones == 0 && midtoneTint == Vector3.Zero && shadows == Vector3.One && highlights == Vector3.One && gameFilterId == 0)
         {
             _status = "Paused";
             _renderHook!.Original(renderManager, enabled, view);
@@ -207,9 +230,10 @@ internal sealed unsafe class ColorFilter : IDisposable
             }
         }
 
-        var splitTint = shadows != Vector3.One || highlights != Vector3.One;
-        var normalMatrix = splitTint ? combined.ScaleRows(highlights) : combined;
-        var darkMatrix = splitTint ? ColorMatrix.ShadowCorrection(shadows, highlights) : ColorMatrix.Identity;
+        var splitTint = midtoneTint != Vector3.Zero || shadows != Vector3.One || highlights != Vector3.One;
+        var (normalMatrix, darkMatrix) = splitTint
+            ? ColorMatrix.SplitTone(combined, shadows, highlights, midtoneTint, tintParameters)
+            : (combined, ColorMatrix.Identity);
         if (!normalMatrix.IsFinite || !darkMatrix.IsFinite)
         {
             _status = FilterStatus.CombinedOutOfRange;

@@ -1,7 +1,11 @@
 using System;
+using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using LiteShade.Configuration;
+using LiteShade.Configuration.Persistence;
 using LiteShade.Profiles;
 
 namespace LiteShade.Windows.Tabs;
@@ -21,17 +25,41 @@ internal sealed class OptionsTab
 
     public void Draw()
     {
+        if (ImGui.CollapsingHeader("Editor"))
+        {
+            var advanced = _config.ShowAdvancedControls;
+            if (ImGui.Checkbox("Advanced controls", ref advanced))
+            {
+                _config.ShowAdvancedControls = advanced;
+                ConfigRepository.Save(_config);
+            }
+
+            ImGui.TextUnformatted("Show effects:");
+            foreach (var effect in Effects.All)
+            {
+                var visible = (_config.HiddenEffects & effect) == 0;
+                if (ImGui.Checkbox(effect.Label(), ref visible))
+                {
+                    _config.HiddenEffects = visible ? _config.HiddenEffects & ~effect : _config.HiddenEffects | effect;
+                    ConfigRepository.Save(_config);
+                }
+            }
+
+            ImGui.TextDisabled("Hidden controls still apply.");
+        }
+
+        ImGui.Spacing();
         ImGui.TextUnformatted("Pause effects during:");
-        using (var table = ImRaii.Table("Pause options", 6, ImGuiTableFlags.SizingStretchProp))
+        using (var table = ImRaii.Table("Pause options", 6, ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.NoSavedSettings))
         {
             if (table)
             {
-                ImGui.TableSetupColumn("Effect", ImGuiTableColumnFlags.WidthStretch, 2);
-                ImGui.TableSetupColumn("GPose", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Cutscenes", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Idle camera", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Portrait mode", ImGuiTableColumnFlags.WidthStretch);
-                ImGui.TableSetupColumn("Combat", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Effect", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("GPose", ImGuiTableColumnFlags.WidthStretch, 1);
+                ImGui.TableSetupColumn("Cutscenes", ImGuiTableColumnFlags.WidthStretch, 1);
+                ImGui.TableSetupColumn("Idle camera", ImGuiTableColumnFlags.WidthStretch, 1);
+                ImGui.TableSetupColumn("Portraits", ImGuiTableColumnFlags.WidthStretch, 1);
+                ImGui.TableSetupColumn("Combat", ImGuiTableColumnFlags.WidthStretch, 1);
                 ImGui.TableHeadersRow();
                 foreach (var effect in Effects.All)
                 {
@@ -41,8 +69,19 @@ internal sealed class OptionsTab
         }
 
         ImGui.Spacing();
+        using var transitionTable = ImRaii.Table("Transition", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX);
+        if (!transitionTable) return;
+        ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableNextRow();
+        ImGui.TableNextColumn();
         var transition = _config.TransitionSeconds;
-        if (ImGui.SliderFloat("Profile transition (colours)", ref transition, 0f, 3f, "%.2f s"))
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Colour transition");
+        ImGui.TableNextColumn();
+        var resetSize = ImGui.GetFrameHeight();
+        ImGui.SetNextItemWidth(Math.Max(1, ImGui.GetContentRegionAvail().X - resetSize - ImGui.GetStyle().ItemSpacing.X));
+        if (ImGui.SliderFloat("##Colour transition", ref transition, 0f, 3f, "%.2f s"))
         {
             _config.TransitionSeconds = float.IsFinite(transition) ? Math.Clamp(transition, 0f, 3f) : 0.35f;
             _profiles.Refresh();
@@ -54,7 +93,19 @@ internal sealed class OptionsTab
         }
         if (ImGui.IsItemHovered())
         {
-            ImGui.SetTooltip("Native game filter changes are instant.");
+            ImGui.SetTooltip("Fades profile colours and colour pauses. GPose filters, depth of field and vignette change instantly. Ctrl-click to type a value.");
+        }
+
+        ImGui.SameLine();
+        bool reset;
+        using (ImRaii.PushFont(UiBuilder.IconFont))
+            reset = ImGui.Button($"{FontAwesomeIcon.Undo.ToIconString()}##Reset transition", new Vector2(resetSize));
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Reset");
+        if (reset)
+        {
+            _config.TransitionSeconds = 0.35f;
+            _profiles.Refresh();
+            _save();
         }
     }
 
@@ -62,6 +113,7 @@ internal sealed class OptionsTab
     {
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
+        ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted(label);
         using var id = ImRaii.PushId(label);
         PauseCheckbox(PauseOptions.GPose, pauses, set);

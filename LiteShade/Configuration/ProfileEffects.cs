@@ -28,6 +28,8 @@ internal static class ProfileEffects
             copy.ShadowColor = source.ShadowColor;
             copy.ShadowStrength = source.ShadowStrength;
             copy.ShadowExposure = source.ShadowExposure;
+            copy.MidtoneColor = source.MidtoneColor;
+            copy.MidtoneStrength = source.MidtoneStrength;
             copy.HighlightColor = source.HighlightColor;
             copy.HighlightStrength = source.HighlightStrength;
             copy.HighlightExposure = source.HighlightExposure;

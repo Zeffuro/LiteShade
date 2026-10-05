@@ -15,6 +15,8 @@ public sealed class SystemConfiguration : IPluginConfiguration
     public bool Enabled { get; set; }
     public bool HasSeenWelcome { get; set; }
     public bool AutomaticProfiles { get; set; }
+    public bool ShowAdvancedControls { get; set; }
+    public Effect HiddenEffects { get; set; }
     public Dictionary<Effect, PauseOptions> EffectPauses { get; set; } = [];
     public float TransitionSeconds { get; set; } = 0.35f;
     public Guid DefaultProfileId { get; set; }
@@ -32,6 +34,7 @@ public sealed class SystemConfiguration : IPluginConfiguration
         FavoriteGameFilters ??= [];
         FavoriteProfiles ??= [];
         EffectPauses ??= [];
+        HiddenEffects &= Effects.All.Aggregate((Effect)0, (value, effect) => value | effect);
         Pack ??= new();
         Pack.Normalize();
         InstalledPacks ??= [];
@@ -101,6 +104,8 @@ public sealed class SystemConfiguration : IPluginConfiguration
         Enabled = false;
         HasSeenWelcome = false;
         AutomaticProfiles = false;
+        ShowAdvancedControls = false;
+        HiddenEffects = 0;
         EffectPauses = [];
         TransitionSeconds = 0.35f;
         Profiles = [ColorProfile.CreateNeutral()];
