@@ -13,7 +13,7 @@
         <RepoUrl>https://github.com/Zeffuro/LiteShade</RepoUrl>
         <IconUrl>https://raw.githubusercontent.com/Zeffuro/LiteShade/master/Images/icon.png</IconUrl>
         <ImageUrls></ImageUrls>
-        <Tags>graphics;colour;color;filters;shaders;presets;gpose;dof;vignette;qol</Tags>
+        <Tags>graphics;colour;color;filters;shaders;presets;gpose;dof;vignette;qol;grading</Tags>
         <AcceptsFeedback>true</AcceptsFeedback>
     </PropertyGroup>
     <ItemGroup>
