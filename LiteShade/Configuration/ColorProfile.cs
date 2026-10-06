@@ -44,6 +44,8 @@ public sealed record ColorProfile
     public float TintBalance { get; set; }
     public float TintBlending { get; set; } = 0.5f;
     public uint GameFilterId { get; set; }
+    public float GameFilterStrength { get; set; } = 1f;
+    public bool GameFilterBlendAll { get; set; } = true;
     public bool Vignette { get; set; }
     public float VignetteAmount { get; set; } = 0.35f;
     public float VignetteRadius { get; set; } = 0.6f;
@@ -96,6 +98,7 @@ public sealed record ColorProfile
         HighlightExposure = Clamp(HighlightExposure, -2f, 2f, 0f);
         TintBalance = Clamp(TintBalance, -1f, 1f, 0f);
         TintBlending = Clamp(TintBlending, 0f, 1f, 0.5f);
+        GameFilterStrength = Clamp(GameFilterStrength, 0f, 1f, 1f);
         FocusDistance = Clamp(FocusDistance, 0.5f, 200f, 5f);
         FNumber = Clamp(FNumber, 0.5f, 32f, 4f);
         VignetteAmount = Clamp(VignetteAmount, 0f, 1f, 0.35f);

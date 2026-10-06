@@ -41,6 +41,8 @@ internal static class ProfileEffects
         if ((effects & Effect.GPoseFilter) != 0)
         {
             copy.GameFilterId = source.GameFilterId;
+            copy.GameFilterStrength = source.GameFilterStrength;
+            copy.GameFilterBlendAll = source.GameFilterBlendAll;
         }
 
         if ((effects & Effect.DepthOfField) != 0)

@@ -235,6 +235,11 @@ internal sealed class ProfileExport
             throw new FormatException("Profile data contains invalid tint balance or blending.");
         }
 
+        if (!float.IsFinite(profile.GameFilterStrength) || profile.GameFilterStrength is < 0f or > 1f)
+        {
+            throw new FormatException("Profile data contains invalid GPose filter intensity.");
+        }
+
         var copy = profile.Copy();
         copy.Normalize();
         return copy;

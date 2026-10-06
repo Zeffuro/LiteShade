@@ -1,7 +1,9 @@
 using System;
 using System.Linq;
+using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using LiteShade.Configuration;
@@ -56,6 +58,16 @@ internal sealed class GameFilterPicker
         DrawFilterArrows(profile);
         ImGui.SameLine();
         ImGui.TextUnformatted(FilterName(profile.GameFilterId));
+        using (var table = ImRaii.Table("Filter intensity", 2, ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings | ImGuiTableFlags.PadOuterX))
+        {
+            if (table)
+            {
+                ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
+                DrawIntensity(profile);
+            }
+        }
+        DrawBlendControl(profile);
         var appearing = ImGui.IsWindowAppearing();
         using (var child = ImRaii.Child("Filter list", ImGuiHelpers.ScaledVector2(320f, 280f)))
         {
@@ -69,6 +81,51 @@ internal sealed class GameFilterPicker
         {
             ImGui.CloseCurrentPopup();
         }
+    }
+
+    public void DrawIntensity(ColorProfile profile)
+    {
+        using var id = ImRaii.PushId("Filter intensity");
+        using var disabled = ImRaii.Disabled(profile.GameFilterId == 0);
+        ImGui.TableNextRow();
+        ImGui.TableNextColumn();
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted("Filter intensity");
+        ImGui.TableNextColumn();
+        var size = ImGui.GetFrameHeight();
+        ImGui.SetNextItemWidth(Math.Max(1, ImGui.GetContentRegionAvail().X - size - ImGui.GetStyle().ItemSpacing.X));
+        var intensity = (int)MathF.Round(profile.GameFilterStrength * 100);
+        if (ImGui.SliderInt("##Intensity", ref intensity, 0, 100, "%d%%", ImGuiSliderFlags.AlwaysClamp))
+        {
+            profile.GameFilterStrength = Math.Clamp(intensity, 0, 100) / 100f;
+            _editor.Profiles.Refresh();
+            _editor.MarkPreviewDirty();
+        }
+
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Lower this for a subtler filter. Ctrl-click to type a value.");
+        if (ImGui.IsItemDeactivatedAfterEdit()) _editor.Save();
+        ImGui.SameLine();
+        var reset = ImGuiComponents.IconButton("Reset", FontAwesomeIcon.Undo, new Vector2(size / ImGuiHelpers.GlobalScale));
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Reset to 100%");
+        if (reset)
+        {
+            profile.GameFilterStrength = 1;
+            _editor.Save();
+        }
+    }
+
+    public void DrawBlendControl(ColorProfile profile)
+    {
+        using var disabled = ImRaii.Disabled(profile.GameFilterId == 0);
+        var blendAll = profile.GameFilterBlendAll;
+        if (ImGui.Checkbox("Fade other colour settings", ref blendAll))
+        {
+            profile.GameFilterBlendAll = blendAll;
+            _editor.Save();
+        }
+
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Lower intensity also reduces your other colour settings.\n"
+            + "Uncheck to adjust just the filter. This may look slightly different from GPose.");
     }
 
     private void DrawGameFilterOptions(ColorProfile profile, ImGuiSelectableFlags flags = ImGuiSelectableFlags.None,

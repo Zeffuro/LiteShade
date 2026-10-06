@@ -16,7 +16,7 @@ public readonly record struct ToneCurve(ImmutableArray<Vector2> Points)
     {
         get
         {
-            if (Points.IsDefaultOrEmpty) return false;
+            if (Points.IsDefaultOrEmpty || Points[0] != Vector2.Zero || Points[^1] != Vector2.One) return false;
             foreach (var point in Points)
                 if (point.X != point.Y) return false;
             return true;
@@ -28,7 +28,7 @@ public readonly record struct ToneCurve(ImmutableArray<Vector2> Points)
     {
         get
         {
-            if (Points.IsDefaultOrEmpty || Points.Length is < 2 or > MaxPoints || Points[0] != Vector2.Zero || Points[^1] != Vector2.One)
+            if (Points.IsDefaultOrEmpty || Points.Length is < 2 or > MaxPoints)
                 return false;
             for (var i = 0; i < Points.Length; i++)
                 if (!ValidPoint(Points[i]) || (i > 0 && Points[i].X - Points[i - 1].X < Spacing - 0.000001f)) return false;
@@ -38,9 +38,9 @@ public readonly record struct ToneCurve(ImmutableArray<Vector2> Points)
 
     public ToneCurve WithPoint(int index, Vector2 point)
     {
-        if (!IsValid || !float.IsFinite(point.X) || !float.IsFinite(point.Y) || index <= 0 || index >= Points.Length - 1) return this;
-        var min = Points[index - 1].X + Spacing;
-        var max = Points[index + 1].X - Spacing;
+        if (!IsValid || !float.IsFinite(point.X) || !float.IsFinite(point.Y) || index < 0 || index >= Points.Length) return this;
+        var min = index == 0 ? 0 : Points[index - 1].X + Spacing;
+        var max = index == Points.Length - 1 ? 1 : Points[index + 1].X - Spacing;
         point.X = Math.Clamp(point.X, Math.Min(min, max), max);
         point.Y = Math.Clamp(point.Y, 0, 1);
         return new ToneCurve(Points.SetItem(index, point));
@@ -48,7 +48,8 @@ public readonly record struct ToneCurve(ImmutableArray<Vector2> Points)
 
     public ToneCurve AddPoint(Vector2 point)
     {
-        if (!IsValid || !ValidPoint(point) || Points.Length == MaxPoints) return this;
+        if (!IsValid || !ValidPoint(point) || Points.Length == MaxPoints
+            || point.X <= Points[0].X || point.X >= Points[^1].X) return this;
         var index = 0;
         foreach (var existing in Points)
         {

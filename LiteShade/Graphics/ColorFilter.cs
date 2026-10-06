@@ -18,7 +18,7 @@ internal sealed unsafe class ColorFilter : IDisposable
     public readonly record struct Settings(ColorMatrix Matrix, float Midtones, ColorCurve Curve, float CurveStrength,
         Vector3 MidtoneTint, Vector3 Shadows, Vector3 Highlights, Vector2 TintParameters, uint GameFilterId,
         PauseOptions Pauses, PauseOptions ShadowHighlightPauses, PauseOptions GameFilterPauses,
-        ColorCurve? CurveFrom = null, float CurveBlend = 1)
+        ColorCurve? CurveFrom = null, float CurveBlend = 1, float GameFilterStrength = 1, bool GameFilterBlendAll = true)
     {
         public bool HasCurve => CurveStrength != 0 && (!Curve.IsIdentity || CurveFrom is { IsIdentity: false });
     }
@@ -36,6 +36,7 @@ internal sealed unsafe class ColorFilter : IDisposable
     private ColorMatrix _matrix;
     private ColorMatrix _darkMatrix;
     private Vector3 _darkParameters;
+    private float _strength;
 
     private bool _applied;
     private PauseFade _colourPause;
@@ -122,7 +123,7 @@ internal sealed unsafe class ColorFilter : IDisposable
         }
 
         var (matrix, midtones, toneCurve, curveStrength, midtoneTint, shadows, highlights, tintParameters,
-            gameFilterId, pauses, shadowPauses, filterPauses, curveFrom, curveBlend) = settings.Value;
+            gameFilterId, pauses, shadowPauses, filterPauses, curveFrom, curveBlend, gameFilterStrength, gameFilterBlendAll) = settings.Value;
         var conditions = ICondition.Get();
         if (!IClientState.Get().IsLoggedIn || conditions[ConditionFlag.BetweenAreas] || conditions[ConditionFlag.BetweenAreas51])
         {
@@ -176,10 +177,11 @@ internal sealed unsafe class ColorFilter : IDisposable
             gameFilterId = 0;
             _pausedEffects |= Effect.GPoseFilter;
         }
+        if (!gameFilterBlendAll && gameFilterStrength == 0) gameFilterId = 0;
         if (matrix.IsIdentity && midtones == 0 && (curveStrength == 0 || (toneCurve.IsIdentity && curveFrom is not { IsIdentity: false }))
             && midtoneTint == Vector3.Zero && shadows == Vector3.One && highlights == Vector3.One && gameFilterId == 0)
         {
-            _status = "Paused";
+            _status = (_pausedEffects | _fadingEffects) != 0 ? "Paused" : FilterStatus.Neutral;
             _renderHook!.Original(renderManager, enabled, view);
             return;
         }
@@ -201,16 +203,24 @@ internal sealed unsafe class ColorFilter : IDisposable
             return;
         }
 
-        if (gameFilter is null && (Vector4)manager->ColorFilterCurve != new Vector4(0, 1, 0, 0))
+        var independentBlend = gameFilter is not null && !gameFilterBlendAll && gameFilterStrength < 1;
+        if ((gameFilter is null || independentBlend) && (Vector4)manager->ColorFilterCurve != new Vector4(0, 1, 0, 0))
         {
             _status = FilterStatus.ColourCurve;
             _renderHook!.Original(renderManager, enabled, view);
             return;
         }
 
+        if (independentBlend && !_lut!.CanBlendNative(part))
+        {
+            _status = "Filter-only blending unavailable";
+            _renderHook!.Original(renderManager, enabled, view);
+            return;
+        }
+
         var nativeFilterEnabled = (manager->Flags & PostEffectFlags.ColorFilterDarkBlend) != 0;
-        var combined = gameFilter is null ? matrix : matrix.Multiply(gameFilter.Matrix);
-        if (gameFilter is null && nativeFilterEnabled)
+        var baseline = ColorMatrix.Identity;
+        if ((gameFilter is null || independentBlend) && nativeFilterEnabled)
         {
             var filter = manager->ColorFilter;
             var nativeMatrix = new ColorMatrix(filter.Matrix[0], filter.Matrix[1], filter.Matrix[2]);
@@ -231,15 +241,12 @@ internal sealed unsafe class ColorFilter : IDisposable
                 return;
             }
 
-            combined = combined.Multiply(nativeMatrix.WithStrength(filter.Strength));
-            if (!combined.IsFinite)
-            {
-                _status = FilterStatus.CombinedOutOfRange;
-                _renderHook!.Original(renderManager, enabled, view);
-                return;
-            }
+            baseline = nativeMatrix.WithStrength(filter.Strength);
         }
 
+        var selectedMatrix = gameFilter is null ? baseline : independentBlend
+            ? ColorMatrix.Lerp(baseline, gameFilter.Matrix, gameFilterStrength) : gameFilter.Matrix;
+        var combined = matrix.Multiply(selectedMatrix);
         var splitTint = midtoneTint != Vector3.Zero || shadows != Vector3.One || highlights != Vector3.One;
         var (normalMatrix, darkMatrix) = splitTint
             ? ColorMatrix.SplitTone(combined, shadows, highlights, midtoneTint, tintParameters)
@@ -256,12 +263,15 @@ internal sealed unsafe class ColorFilter : IDisposable
         _matrix = normalMatrix;
         _darkMatrix = darkMatrix;
         _darkParameters = splitTint ? new Vector3(tintParameters, 1) : new Vector3(0, 1, 1);
+        _strength = gameFilter is not null && gameFilterBlendAll ? gameFilterStrength : 1;
         _applied = false;
         var originalCurve = manager->ColorFilterCurve;
         var curve = gameFilter?.Curve ?? (Vector4)originalCurve;
+        var nativeFrom = (Vector4)originalCurve;
         if (midtones != 0)
         {
             curve.Z = Math.Clamp(curve.Z + midtones, -1f, 1f);
+            nativeFrom.Z = Math.Clamp(nativeFrom.Z + midtones, -1f, 1f);
         }
 
         if (gameFilter is not null || midtones != 0)
@@ -272,7 +282,8 @@ internal sealed unsafe class ColorFilter : IDisposable
         manager->Flags |= PostEffectFlags.ColorFilterDarkBlend;
         try
         {
-            _lut!.Begin(manager, part, toneCurve, curveFrom, curveBlend, curveStrength);
+            _lut!.Begin(manager, part, toneCurve, curveFrom, curveBlend, curveStrength,
+                independentBlend ? nativeFrom : null, gameFilterStrength);
             _renderHook!.Original(renderManager, enabled, view);
             _status = _lut.Error ?? (_applied ? FilterStatus.Active : FilterStatus.PassNotDrawn);
         }
@@ -306,7 +317,7 @@ internal sealed unsafe class ColorFilter : IDisposable
         var filter = new PostEffectManager.ColorFilterParameters
         {
             DarkParameters = _darkParameters,
-            Strength = 1,
+            Strength = _strength,
         };
         filter.Matrix[0] = _matrix.Red;
         filter.Matrix[1] = _matrix.Green;

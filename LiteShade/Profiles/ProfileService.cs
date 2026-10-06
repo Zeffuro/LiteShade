@@ -212,6 +212,9 @@ internal sealed class ProfileService : IDisposable
             _transitionStarted = Stopwatch.GetTimestamp();
             _transitionDuration = transition && _enabled && _context.IsLoggedIn && !_context.IsTransitioning && _preview is null
                 && _current.Color.GameFilterId == _effects[selection.ProfileId].Color.GameFilterId
+                && (_current.Color.GameFilterId == 0
+                    || (_current.Color.GameFilterStrength == _effects[selection.ProfileId].Color.GameFilterStrength
+                        && _current.Color.GameFilterBlendAll == _effects[selection.ProfileId].Color.GameFilterBlendAll))
                 ? _transitionSeconds : 0;
         }
         else if (!transition)
@@ -262,7 +265,8 @@ internal sealed class ProfileService : IDisposable
                 ColorMatrix.TintGain(profile.HighlightColor, profile.HighlightStrength) * MathF.Pow(2f, profile.HighlightExposure * 0.5f),
                 new Vector2(0.5f - profile.TintBalance * 0.45f, MathF.Max(0.01f, profile.TintBlending)),
                 profile.GameFilterId, _config.GetPauses(Effect.ColourAdjustments),
-                _config.GetPauses(Effect.ShadowHighlight), _config.GetPauses(Effect.GPoseFilter)),
+                _config.GetPauses(Effect.ShadowHighlight), _config.GetPauses(Effect.GPoseFilter),
+                GameFilterStrength: profile.GameFilterStrength, GameFilterBlendAll: profile.GameFilterBlendAll),
             profile.DepthOfField ? new DepthOfField.Settings(profile.Focus, profile.FocusDistance, profile.FNumber, _config.GetPauses(Effect.DepthOfField)) : null,
             profile.Vignette && profile.VignetteAmount > 0
                 ? new Vignette.Settings(profile.VignetteAmount, profile.VignetteRadius, profile.VignetteShape, profile.VignetteColor, _config.GetPauses(Effect.Vignette))

@@ -94,8 +94,10 @@ internal sealed class EffectEditor
                         ImGui.TableSetupColumn("Label", ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
                         ImGui.TableSetupColumn("Control", ImGuiTableColumnFlags.WidthStretch);
                         _filters.DrawControl(profile);
+                        _filters.DrawIntensity(profile);
                     }
                 }
+                _filters.DrawBlendControl(profile);
                 break;
             case Effect.DepthOfField:
                 ImGui.TextDisabled("Experimental");
@@ -125,7 +127,11 @@ internal sealed class EffectEditor
                 profile.TintBalance = 0;
                 profile.TintBlending = 0.5f;
                 break;
-            case Effect.GPoseFilter: profile.GameFilterId = 0; break;
+            case Effect.GPoseFilter:
+                profile.GameFilterId = 0;
+                profile.GameFilterStrength = 1;
+                profile.GameFilterBlendAll = true;
+                break;
             case Effect.DepthOfField:
                 profile.DepthOfField = false;
                 profile.Focus = FocusMode.Target;

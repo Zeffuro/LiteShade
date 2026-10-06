@@ -45,8 +45,8 @@ internal sealed class CurveEditor(ProfilesTab editor)
         if (!plot) return;
         var axisFlags = ImPlotAxisFlags.Lock | ImPlotAxisFlags.NoMenus | ImPlotAxisFlags.NoLabel;
         ImPlot.SetupAxes("", "", axisFlags, axisFlags);
-        ImPlot.SetupAxisLimits(ImAxis.X1, 0, 1, ImPlotCond.Always);
-        ImPlot.SetupAxisLimits(ImAxis.Y1, 0, 1, ImPlotCond.Always);
+        ImPlot.SetupAxisLimits(ImAxis.X1, -0.04, 1.04, ImPlotCond.Always);
+        ImPlot.SetupAxisLimits(ImAxis.Y1, -0.04, 1.04, ImPlotCond.Always);
         if (_sampled != profile.Curve)
         {
             ColorCurve.Sample(profile.Curve, _samples);
@@ -107,7 +107,7 @@ internal sealed class CurveEditor(ProfilesTab editor)
             double x = point.X;
             double y = point.Y;
             var flags = ImPlotDragToolFlags.NoFit;
-            if (disabled || i == 0 || i == profile.Curve.Points.Length - 1) flags |= ImPlotDragToolFlags.NoInputs;
+            if (disabled) flags |= ImPlotDragToolFlags.NoInputs;
             if (!ImPlot.DragPoint(i, ref x, ref y, color, 5 * ImGuiHelpers.GlobalScale, flags)) continue;
             var curve = profile.Curve.WithPoint(i, new Vector2((float)x, (float)y));
             if (!curve.IsValid || curve == profile.Curve) continue;

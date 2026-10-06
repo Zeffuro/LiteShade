@@ -22,10 +22,15 @@ internal sealed unsafe class ColorLut : IDisposable
     private float _blend;
     private float _strength;
     private Vector4 _native;
+    private Vector4? _nativeFrom;
+    private float _nativeBlend;
     private bool _cached;
     private bool _failed;
 
     public string? Error { get; private set; }
+    public bool CanBlendNative(PostEffectColorFilterDarkBlend* part)
+        => _hook is not null && !_failed && part != null && part->LutIndex < 3
+            && IsCurveTexture(part->LutTextures[(int)((part->LutIndex + 1) % 3)].Value);
 
     public ColorLut()
     {
@@ -41,10 +46,13 @@ internal sealed unsafe class ColorLut : IDisposable
 
     public void Enable() => _hook?.Enable();
 
-    public void Begin(PostEffectManager* manager, PostEffectColorFilterDarkBlend* part, ColorCurve curve, ColorCurve? from, float blend, float strength)
+    public void Begin(PostEffectManager* manager, PostEffectColorFilterDarkBlend* part, ColorCurve curve, ColorCurve? from, float blend, float strength,
+        Vector4? nativeFrom = null, float nativeBlend = 1)
     {
         Error = null;
-        if (strength == 0 || (curve.IsIdentity && from is not { IsIdentity: false })) return;
+        var blendNative = nativeFrom is not null && nativeBlend < 1;
+        if (!blendNative) nativeBlend = 1;
+        if (!blendNative && (strength == 0 || (curve.IsIdentity && from is not { IsIdentity: false }))) return;
         if (_hook is null || _failed)
         {
             Error = "Curves unavailable";
@@ -52,9 +60,10 @@ internal sealed unsafe class ColorLut : IDisposable
         }
 
         var native = (Vector4)manager->ColorFilterCurve;
-        if (!_cached || _curve != curve || _from != from || _blend != blend || _strength != strength || _native != native)
+        if (!_cached || _curve != curve || _from != from || _blend != blend || _strength != strength || _native != native
+            || _nativeFrom != nativeFrom || _nativeBlend != nativeBlend)
         {
-            _cached = ColorCurve.BuildLut(curve, from, blend, strength, native, _bytes);
+            _cached = ColorCurve.BuildLut(curve, from, blend, strength, native, _bytes, nativeFrom, nativeBlend);
             if (!_cached)
             {
                 Error = "Curve out of range";
@@ -65,6 +74,8 @@ internal sealed unsafe class ColorLut : IDisposable
             _blend = blend;
             _strength = strength;
             _native = native;
+            _nativeFrom = nativeFrom;
+            _nativeBlend = nativeBlend;
         }
 
         _manager = manager;
