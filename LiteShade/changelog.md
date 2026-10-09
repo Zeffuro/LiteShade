@@ -1,3 +1,6 @@
+# 1.0.2.2
+- Allow to select multiple zones and weather per condition rule.
+
 # 1.0.2.1
 - Added GPose filter intensity with optional filter-only blending.
 - Added the ability to adjust the start and end anchors in the curve editor.

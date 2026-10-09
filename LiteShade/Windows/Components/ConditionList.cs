@@ -181,7 +181,7 @@ internal sealed class ConditionList(SystemConfiguration config, ContextNames nam
             if (combo)
             {
                 if (ImGui.Selectable("Any zone", !_zone.HasValue)) _zone = null;
-                foreach (var zone in config.Rules.Select(rule => rule.TerritoryId).OfType<uint>().Distinct().OrderBy(names.Territory))
+                foreach (var zone in config.Rules.SelectMany(rule => rule.TerritoryIds).Distinct().OrderBy(names.Territory))
                 {
                     using var id = ImRaii.PushId(zone.ToString());
                     if (ImGui.Selectable(names.Territory(zone), _zone == zone)) _zone = zone;
@@ -194,12 +194,12 @@ internal sealed class ConditionList(SystemConfiguration config, ContextNames nam
     {
         if (_profile.HasValue && rule.ProfileId != _profile) return false;
         if (_folder is not null && !string.Equals(profile?.Folder, _folder, StringComparison.OrdinalIgnoreCase)) return false;
-        if (_zone.HasValue && rule.TerritoryId != _zone) return false;
+        if (_zone.HasValue && !rule.TerritoryIds.Contains(_zone.Value)) return false;
         if (_search.Length == 0) return true;
         return Contains(rule.Name) || Contains(profile?.Name) || Contains(profile?.Folder)
-               || rule.TerritoryId is { } zone && Contains(names.Territory(zone))
+               || rule.TerritoryIds.Any(zone => Contains(names.Territory(zone)))
                || rule.AreaId is { } area && Contains(names.Area(area))
-               || rule.WeatherId is { } weather && Contains(names.Weather(weather));
+               || rule.WeatherIds.Any(weather => Contains(names.Weather(weather)));
     }
 
     private bool Contains(string? text) => text?.Contains(_search, StringComparison.OrdinalIgnoreCase) == true;

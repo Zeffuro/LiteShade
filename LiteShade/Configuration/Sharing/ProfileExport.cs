@@ -265,6 +265,12 @@ internal sealed class ProfileExport
             throw new FormatException("Profile data contains an empty rule.");
         }
 
+        if (rule.TerritoryIds is null || rule.TerritoryIds.Contains(0)
+            || rule.WeatherIds is null || rule.WeatherIds.Contains(0))
+        {
+            throw new FormatException("Profile data contains invalid location conditions.");
+        }
+
         var copy = rule.Copy();
         copy.Normalize();
         return copy;

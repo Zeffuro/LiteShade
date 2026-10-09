@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 using LiteShade.Configuration;
 
@@ -14,10 +16,18 @@ public sealed class ProfileRule
 
     public Guid ProfileId { get; set; }
 
-    public uint? TerritoryId { get; set; }
+    public List<uint> TerritoryIds { get; set; } = [];
 
     public uint? AreaId { get; set; }
 
+    public List<byte> WeatherIds { get; set; } = [];
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public uint? TerritoryId { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public byte? WeatherId { get; set; }
 
     public int? StartTime { get; set; }
@@ -35,10 +45,18 @@ public sealed class ProfileRule
     public bool? IsMounted { get; set; }
     public bool? IsPerforming { get; set; }
 
-    public ProfileRule Copy() => (ProfileRule)MemberwiseClone();
+    public ProfileRule Copy()
+    {
+        var copy = (ProfileRule)MemberwiseClone();
+        copy.TerritoryIds = TerritoryIds?.ToList()!;
+        copy.WeatherIds = WeatherIds?.ToList()!;
+        return copy;
+    }
 
     public bool IsValid => Id != Guid.Empty
                            && ProfileId != Guid.Empty
+                           && TerritoryIds is not null && !TerritoryIds.Contains(0)
+                           && WeatherIds is not null && !WeatherIds.Contains(0)
                            && Enum.IsDefined(Activity)
                            && StartTime.HasValue == EndTime.HasValue
                            && (StartTime is null || StartTime is >= 0 and < 1440)
@@ -46,13 +64,19 @@ public sealed class ProfileRule
 
     public void Normalize()
     {
-        if (TerritoryId == 0 || AreaId == 0 || WeatherId == 0)
+        if (TerritoryIds is null || TerritoryIds.Contains(0)
+            || WeatherIds is null || WeatherIds.Contains(0)
+            || TerritoryId == 0 || AreaId == 0 || WeatherId == 0)
         {
-            TerritoryId = TerritoryId == 0 ? null : TerritoryId;
-            AreaId = AreaId == 0 ? null : AreaId;
-            WeatherId = WeatherId == 0 ? null : WeatherId;
             Enabled = false;
         }
+
+        AreaId = AreaId == 0 ? null : AreaId;
+        TerritoryIds ??= [];
+        WeatherIds ??= [];
+        MigrateLegacyConditions();
+        TerritoryIds = TerritoryIds.Where(territory => territory != 0).Distinct().ToList();
+        WeatherIds = WeatherIds.Where(weather => weather != 0).Distinct().ToList();
 
         Name = ColorProfile.NormalizeName(Name, "Unnamed rule");
 
@@ -60,5 +84,13 @@ public sealed class ProfileRule
         {
             Enabled = false;
         }
+    }
+
+    private void MigrateLegacyConditions()
+    {
+        if (TerritoryId is { } territory) TerritoryIds.Add(territory);
+        if (WeatherId is { } weather) WeatherIds.Add(weather);
+        TerritoryId = null;
+        WeatherId = null;
     }
 }

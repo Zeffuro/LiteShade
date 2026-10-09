@@ -9,7 +9,7 @@ namespace LiteShade.Configuration;
 [Serializable]
 public sealed class SystemConfiguration : IPluginConfiguration
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public int Version { get; set; } = CurrentVersion;
     public bool Enabled { get; set; }

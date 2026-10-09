@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
@@ -41,33 +42,31 @@ internal sealed class ConditionFields
     {
         var context = _profiles.Context;
         var currentAvailable = context is { IsLoggedIn: true, IsTransitioning: false };
-        var zone = rule.TerritoryId;
-        if (LocationCombo("Zone", ref zone, _names.Territories, currentAvailable ? context.TerritoryId : null))
+        if (DrawChoices("Zone", rule.TerritoryIds, _names.Territories,
+                currentAvailable && context.TerritoryId != 0 ? context.TerritoryId : null))
         {
-            rule.TerritoryId = zone;
             rule.AreaId = null;
             ShowArea = false;
             _save();
         }
 
-        if (rule.TerritoryId.HasValue && DrawRemoveButton("Zone"))
+        if (rule.TerritoryIds.Count > 0 && DrawRemoveButton("Zone"))
         {
-            rule.TerritoryId = null;
+            rule.TerritoryIds = [];
             rule.AreaId = null;
             ShowArea = false;
             _save();
         }
 
-        uint? weather = rule.WeatherId;
-        if (LocationCombo("Weather", ref weather, _names.Weathers, currentAvailable ? context.WeatherId : null))
+        if (DrawChoices("Weather", rule.WeatherIds, _names.Weathers,
+                currentAvailable && context.WeatherId is > 0 ? context.WeatherId : null))
         {
-            rule.WeatherId = weather.HasValue ? (byte)weather.Value : null;
             _save();
         }
 
-        if (rule.WeatherId.HasValue && DrawRemoveButton("Weather"))
+        if (rule.WeatherIds.Count > 0 && DrawRemoveButton("Weather"))
         {
-            rule.WeatherId = null;
+            rule.WeatherIds = [];
             _save();
         }
 
@@ -89,6 +88,76 @@ internal sealed class ConditionFields
             }
         }
     }
+
+    private bool DrawChoices<T>(string label, List<T> selected, IReadOnlyDictionary<T, string> choices,
+        T? current) where T : struct
+    {
+        using var id = ImRaii.PushId(label);
+        var preview = FormatSelection(selected, Name);
+        using var combo = ImRaii.Combo(label, preview);
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(selected.Count > 0
+                ? preview
+                : $"Matches any {label.ToLowerInvariant()}.");
+        }
+        if (!combo) return false;
+
+        if (ImGui.IsWindowAppearing())
+        {
+            _conditionSearch = string.Empty;
+            ImGui.SetKeyboardFocusHere();
+        }
+
+        ImGui.InputTextWithHint("##Search", "Search", ref _conditionSearch, 80);
+        ImGui.TextDisabled($"Matches any selected {label.ToLowerInvariant()}.");
+        var changed = false;
+        if (ImGui.Selectable("Any", selected.Count == 0, ImGuiSelectableFlags.DontClosePopups))
+        {
+            selected.Clear();
+            changed = true;
+        }
+
+        if (current is { } currentId && ImGui.Selectable($"Current: {Name(currentId)}",
+                selected.Contains(currentId), ImGuiSelectableFlags.DontClosePopups))
+        {
+            Toggle(currentId);
+        }
+
+        ImGui.Separator();
+        var searchId = uint.TryParse(_conditionSearch, out var number) ? number.ToString() : null;
+        var unknown = selected.Where(value => !choices.ContainsKey(value))
+            .Select(value => KeyValuePair.Create(value, Name(value))).ToArray();
+        var rows = choices.Concat(unknown);
+        foreach (var (key, name) in rows)
+        {
+            var keyText = key.ToString()!;
+            if (!name.Contains(_conditionSearch, StringComparison.OrdinalIgnoreCase) && keyText != searchId) continue;
+            using var rowId = ImRaii.PushId(keyText);
+            if (ImGui.Selectable(name, selected.Contains(key), ImGuiSelectableFlags.DontClosePopups))
+            {
+                Toggle(key);
+            }
+        }
+
+        return changed;
+
+        string Name(T value) => choices.GetValueOrDefault(value)
+            ?? $"Unknown {label.ToLowerInvariant()} ({value})";
+
+        void Toggle(T value)
+        {
+            if (!selected.Remove(value)) selected.Add(value);
+            changed = true;
+        }
+    }
+
+    public static string FormatSelection<T>(IReadOnlyList<T> selected, Func<T, string> name) => selected.Count switch
+    {
+        0 => "Any",
+        1 => name(selected[0]),
+        _ => $"{selected.Count}: {string.Join(", ", selected.Select(name))}",
+    };
 
     private bool LocationCombo(string label, ref uint? selected, IReadOnlyDictionary<uint, string> choices, uint? current)
     {

@@ -173,8 +173,8 @@ internal sealed class ConditionsTab
         {
             Name = useCurrent ? _names.Territory(context.TerritoryId) : $"Rule {_config.Rules.Count + 1}",
             ProfileId = _selectedProfile(),
-            TerritoryId = useCurrent ? context.TerritoryId : null,
-            WeatherId = useCurrent ? context.WeatherId : null,
+            TerritoryIds = useCurrent ? [context.TerritoryId] : [],
+            WeatherIds = useCurrent ? [context.WeatherId!.Value] : [],
             Enabled = false,
         };
         if (_config.Profiles.All(profile => profile.Id != rule.ProfileId))
@@ -238,9 +238,9 @@ internal sealed class ConditionsTab
     private string RuleSummary(ProfileRule rule)
     {
         var parts = new List<string>();
-        if (rule.TerritoryId is { } zone) parts.Add(_names.Territory(zone));
+        if (rule.TerritoryIds.Count > 0) parts.Add(ConditionFields.FormatSelection(rule.TerritoryIds, _names.Territory));
         if (rule.AreaId is { } area) parts.Add(_names.Area(area));
-        if (rule.WeatherId is { } weather) parts.Add(_names.Weather(weather));
+        if (rule.WeatherIds.Count > 0) parts.Add(ConditionFields.FormatSelection(rule.WeatherIds, weather => _names.Weather(weather)));
         if (rule.StartTime is { } start && rule.EndTime is { } end)
         {
             parts.Add(start == end ? "All day (ET)" : $"{ConditionFields.FormatEtTime(start)}–{ConditionFields.FormatEtTime(end)} ET");

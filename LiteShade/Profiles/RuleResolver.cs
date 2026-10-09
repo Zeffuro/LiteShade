@@ -70,7 +70,7 @@ public static class RuleResolver
             }
         }
 
-        if (rule.TerritoryId is { } territoryId && territoryId != context.TerritoryId)
+        if (rule.TerritoryIds.Count > 0 && !rule.TerritoryIds.Contains(context.TerritoryId))
         {
             return RuleCondition.Zone;
         }
@@ -80,7 +80,7 @@ public static class RuleResolver
             return RuleCondition.Area;
         }
 
-        if (rule.WeatherId is { } weatherId && context.WeatherId != weatherId)
+        if (rule.WeatherIds.Count > 0 && (context.WeatherId is not { } weather || !rule.WeatherIds.Contains(weather)))
         {
             return RuleCondition.Weather;
         }
